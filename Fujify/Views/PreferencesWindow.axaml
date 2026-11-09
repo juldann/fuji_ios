@@ -1,0 +1,831 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Fujify.ViewModels"
+        xmlns:loc="using:Fujify.Localization"
+        x:Class="Fujify.Views.PreferencesWindow"
+        x:DataType="vm:PreferencesViewModel"
+        Title="{loc:Loc Settings}"
+        Width="520" Height="680"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="0"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        Icon="/Assets/images/logo.ico">
+
+    <Border Classes="dialog-card"
+            Background="{DynamicResource AppSurfaceBrush}"
+            BorderBrush="{DynamicResource AppEdgeBrush}"
+            BorderThickness="1"
+            CornerRadius="16"
+            ClipToBounds="True"
+            PointerPressed="Window_PointerPressed">
+        <Panel>
+            <!-- Subtle Purple Ambient Glow in top right -->
+            <Canvas IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Ellipse Width="600" Height="400" Canvas.Right="-150" Canvas.Top="-150" Opacity="0.18">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush Center="50%,50%" GradientOrigin="50%,50%" RadiusX="50%" RadiusY="50%">
+                            <GradientStop Color="#4A286E" Offset="0.0"/>
+                            <GradientStop Color="#24133F" Offset="0.5"/>
+                            <GradientStop Color="#000E1016" Offset="1.0"/>
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+            </Canvas>
+
+            <Grid Margin="24" RowDefinitions="Auto,*,Auto">
+                <!-- Header with Title and Close X -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="4,0,0,16">
+                    <TextBlock Grid.Column="0" Text="{loc:Loc Settings}" FontWeight="SemiBold" FontSize="20"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Command="{Binding CancelCommand}"
+                            Width="30" Height="30" CornerRadius="15" Padding="0"
+                            Background="Transparent" Foreground="{DynamicResource AppTextSecondaryBrush}"
+                            BorderThickness="0" Cursor="Hand" ToolTip.Tip="{loc:Loc Close}"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                        <Button.Styles>
+                            <Style Selector="Button:pointerover">
+                                <Setter Property="Background" Value="#22FFFFFF"/>
+                                <Setter Property="Foreground" Value="#FFFFFFFF"/>
+                            </Style>
+                        </Button.Styles>
+                        <TextBlock Text="✕" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                </Grid>
+
+            <!-- Settings Options Grouped by Category -->
+            <ScrollViewer Grid.Row="1" Padding="0,0,6,0" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="16">
+
+                    <!-- 1. LANGUAGE -->
+                    <Border Classes="panel" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <TextBlock Text="{loc:Loc Language}" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="10">
+                                <TextBlock Text="{loc:Loc SelectLanguage}" FontWeight="SemiBold" FontSize="12"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                <ComboBox ItemsSource="{Binding AvailableLanguages}"
+                                          SelectedItem="{Binding SelectedLanguageItem, Mode=TwoWay}"
+                                          HorizontalAlignment="Stretch"
+                                          Height="36"
+                                          CornerRadius="8"
+                                          BorderThickness="1"
+                                          BorderBrush="{DynamicResource AppEdgeBrush}"
+                                          Background="{DynamicResource AppSurfaceSecondaryBrush}"
+                                          Foreground="{DynamicResource AppTextPrimaryBrush}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="{Binding NativeName}" FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding DisplayName, StringFormat='({0})'}" FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Text="{loc:Loc LanguageHint}"
+                                           FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 2. THEME -->
+                    <Border Classes="panel" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <TextBlock Text="{loc:Loc Theme}" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="10">
+                                <TextBlock Text="{loc:Loc AppearanceMode}" FontWeight="SemiBold" FontSize="12"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                <Grid ColumnDefinitions="*,*,*,*" Margin="0,2,0,2">
+                                    <RadioButton Grid.Column="0" Content="{loc:Loc Automatic}" IsChecked="{Binding IsAutoThemeSelected, Mode=TwoWay}" GroupName="DesktopTheme"/>
+                                    <RadioButton Grid.Column="1" Content="{loc:Loc Dark}" IsChecked="{Binding IsDarkThemeSelected, Mode=TwoWay}" GroupName="DesktopTheme"/>
+                                    <RadioButton Grid.Column="2" Content="{loc:Loc Amoled}" IsChecked="{Binding IsAmoledThemeSelected, Mode=TwoWay}" GroupName="DesktopTheme"/>
+                                    <RadioButton Grid.Column="3" Content="{loc:Loc Light}" IsChecked="{Binding IsLightThemeSelected, Mode=TwoWay}" GroupName="DesktopTheme"/>
+                                </Grid>
+                                <TextBlock Text="{loc:Loc ThemeHint}"
+                                           FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 2. PERFORMANCE -->
+                    <Border Classes="panel" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <TextBlock Text="{loc:Loc Performance}" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="12">
+                                <!-- Concurrency Slider -->
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <TextBlock Text="{loc:Loc ConcurrentConversions}" FontWeight="SemiBold" FontSize="12"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="4" Padding="5,1" IsVisible="{Binding !IsPro}" VerticalAlignment="Center">
+                                                <TextBlock Text="PRO" FontSize="9" FontWeight="Bold" Foreground="#252332"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding MaxConcurrentConversions}" FontWeight="Bold" FontSize="13"
+                                                   Foreground="{DynamicResource AppAccentLightBrush}"/>
+                                    </Grid>
+                                    <Slider Minimum="1" Maximum="{Binding TotalThreads}" Value="{Binding MaxConcurrentConversions}" 
+                                            IsEnabled="{Binding IsPro}"
+                                            IsSnapToTickEnabled="True" TickFrequency="1"/>
+                                    <TextBlock Text="{Binding ConcurrencyHint}" FontSize="11" 
+                                               Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Import Pictures Instantly Toggle -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc ImportPicturesInstantly}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc ImportPicturesInstantlyDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding SkipThumbnailGeneration}" OnContent="" OffContent=""/>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 3. FILE HANDLING -->
+                    <Border Classes="panel" ClipToBounds="True">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <TextBlock Text="{loc:Loc FileHandling}" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="12">
+                                <!-- Custom File Suffix -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc AddSuffixToConvertedFileName}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc AddSuffixDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AppendSuffix}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="Auto,*" Margin="0,2,0,0" IsVisible="{Binding AppendSuffix}">
+                                    <TextBlock Grid.Column="0" Text="{loc:Loc SuffixLabel}" VerticalAlignment="Center" FontSize="11" Margin="0,0,10,0"
+                                               Foreground="{DynamicResource AppTextSecondaryBrush}"/>
+                                    <TextBox Grid.Column="1" Text="{Binding Suffix}"
+                                             Background="{DynamicResource AppSurfaceSecondaryBrush}"
+                                             Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                             BorderThickness="1" BorderBrush="{DynamicResource AppEdgeBrush}"
+                                             PlaceholderText="-fujified" FontSize="11" Height="32" CornerRadius="8" VerticalContentAlignment="Center"/>
+                                </Grid>
+                                <TextBlock Text="{loc:Loc ExampleSuffix}" FontSize="11"
+                                           Foreground="{DynamicResource AppAccentLightBrush}"
+                                           IsVisible="{Binding AppendSuffix}" Margin="0,-4,0,2" TextWrapping="Wrap"/>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Subfolder Option -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc SaveConvertedPhotosInSubfolder}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc SaveSubfolderDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding CreateSubfolder}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <StackPanel Spacing="8" Margin="0,4,0,2" IsVisible="{Binding CreateSubfolder}">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <TextBlock Text="{loc:Loc KeepOriginalDirectoryName}" FontSize="11" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <TextBlock Text="{loc:Loc KeepOriginalDirectoryNameDesc}" FontSize="10.5"
+                                                       Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding SubfolderUseOriginalName}" OnContent="" OffContent=""/>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding SubfolderUseOriginalName}">
+                                        <TextBlock Grid.Column="0" Text="{loc:Loc DirectorySuffixLabel}" VerticalAlignment="Center" FontSize="11" Margin="0,0,10,0"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding SubfolderSuffix}"
+                                                 Background="{DynamicResource AppSurfaceSecondaryBrush}"
+                                                 Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                 BorderThickness="1" BorderBrush="{DynamicResource AppEdgeBrush}"
+                                                 PlaceholderText="-fujified" FontSize="11" Height="32" CornerRadius="8" VerticalContentAlignment="Center"/>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding !SubfolderUseOriginalName}">
+                                        <TextBlock Grid.Column="0" Text="{loc:Loc SubfolderNameLabel}" VerticalAlignment="Center" FontSize="11" Margin="0,0,10,0"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}"/>
+                                        <TextBox Grid.Column="1" Text="{Binding SubfolderCustomName}"
+                                                 Background="{DynamicResource AppSurfaceSecondaryBrush}"
+                                                 Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                 BorderThickness="1" BorderBrush="{DynamicResource AppEdgeBrush}"
+                                                 PlaceholderText="Fujified" FontSize="11" Height="32" CornerRadius="8" VerticalContentAlignment="Center"/>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding SubfolderPreview, StringFormat='Example: {0}'}" FontSize="11"
+                                               Foreground="{DynamicResource AppAccentLightBrush}" Margin="0,0,0,2" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Auto-Open Destination Folder -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc OpenDestinationFolderAfterConversion}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc OpenDestinationFolderDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoOpenOutputFolder}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Lossless Compression -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <TextBlock Text="{loc:Loc LosslessDngCompression}" FontWeight="SemiBold" FontSize="12"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="4" Padding="5,1" IsVisible="{Binding !IsPro}" VerticalAlignment="Center">
+                                                <TextBlock Text="PRO" FontSize="9" FontWeight="Bold" Foreground="#252332"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{loc:Loc LosslessDngCompressionDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding LosslessCompression}" IsEnabled="{Binding IsPro}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Backup Original File -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc BackupOriginalFile}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc BackupOriginalFileDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding BackupOriginalFile}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Embed RAW -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc EmbedOriginalRaw}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc EmbedOriginalRawDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding EmbedOriginalRaw}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}" IsVisible="{Binding IsOpenInLightroomSupported}"/>
+
+                                <!-- Auto-open in Lightroom -->
+                                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsOpenInLightroomSupported}">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc AutoOpenInLightroom}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc AutoOpenInLightroomDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoOpenInLightroom}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}" IsVisible="{Binding ShowOpenInCaptureOne}"/>
+
+                                <!-- Auto-open in Capture One -->
+                                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding ShowOpenInCaptureOne}">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc AutoOpenInCaptureOne}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc AutoOpenInCaptureOneDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoOpenInCaptureOne}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Export Failed Conversions Log -->
+                                <StackPanel Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <TextBlock Text="{loc:Loc ExportFailedConversionsLogTitle}" FontWeight="SemiBold" FontSize="12"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <TextBlock Text="{loc:Loc ExportFailedConversionsLogDesc}" FontSize="11"
+                                                       Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding ExportFailedConversionsLog}" OnContent="" OffContent=""/>
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasLatestFailureLog}">
+                                        <Button Content="{loc:Loc OpenLatestErrorLog}" Command="{Binding OpenLatestFailureLogCommand}"
+                                                Classes="secondary" Height="28" Padding="12,0" CornerRadius="14" FontSize="11"
+                                                VerticalContentAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}" IsVisible="False"/>
+
+                                <!-- Windows Explorer Context Menu -->
+                                <Grid ColumnDefinitions="*,Auto" IsVisible="False">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{loc:Loc WindowsContextMenuTitle}" FontWeight="SemiBold" FontSize="12"
+                                                       Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="4" Padding="5,1" 
+                                                    IsVisible="{Binding !IsPro}" VerticalAlignment="Center">
+                                                <TextBlock Text="PRO" FontSize="9" FontWeight="Bold" Foreground="#252332"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{loc:Loc WindowsContextMenuDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding IsWindowsContextMenuEnabled}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Lightroom Film Simulation Presets -->
+                                <Border Background="{DynamicResource AppSurfaceSecondaryBrush}" CornerRadius="10" Padding="12,10" 
+                                        BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="1">
+                                    <StackPanel Spacing="8">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0" Spacing="2">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <TextBlock Text="{loc:Loc LightroomPresetsTitle}" FontWeight="SemiBold" FontSize="12"
+                                                               Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                                    <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="4" Padding="5,1" 
+                                                            IsVisible="{Binding !IsPro}" VerticalAlignment="Center">
+                                                        <TextBlock Text="PRO" FontSize="9" FontWeight="Bold" Foreground="#252332"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{loc:Loc LightroomPresetsDesc}" 
+                                                           FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- Important Note: converted photo requirement -->
+                                        <Border Background="#1A7C5CFC" BorderBrush="#337C5CFC" BorderThickness="1" CornerRadius="6" Padding="10,8">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <PathIcon Grid.Column="0" Data="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" 
+                                                          Width="14" Height="14" Foreground="{DynamicResource AppAccentBrush}" VerticalAlignment="Top" Margin="0,1,8,0"/>
+                                                <TextBlock Grid.Column="1" FontSize="10.5" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap" LineHeight="15">
+                                                    <Run FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}" Text="{loc:Loc NoticeLabel}"/>
+                                                    <Run Text="{loc:Loc LightroomPresetsNotice}"/>
+                                                </TextBlock>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- Action Buttons -->
+                                        <WrapPanel Orientation="Horizontal" IsEnabled="{Binding !IsInstallingPresets}">
+                                            <Button Content="{loc:Loc InstallToLightroom}" Command="{Binding InstallLightroomPresetsCommand}" Classes="secondary"
+                                                    Padding="12,6" FontSize="11" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                                            <Button Content="{loc:Loc ExportPresetsZip}" Command="{Binding ExportLightroomPresetsCommand}" Classes="secondary"
+                                                    Padding="12,6" FontSize="11" FontWeight="Normal"/>
+                                        </WrapPanel>
+
+                                        <!-- Preset Import Progress Bar -->
+                                        <StackPanel IsVisible="{Binding IsInstallingPresets}" Spacing="6" Margin="0,4,0,0">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <TextBlock Grid.Column="0" Text="{Binding PresetInstallStatusText}" FontSize="11"
+                                                           Foreground="{DynamicResource AppTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding PresetInstallPercentText}" FontSize="11" FontWeight="Bold"
+                                                           Foreground="{DynamicResource AppAccentBrush}" Margin="8,0,0,0"/>
+                                            </Grid>
+                                            <ProgressBar Minimum="0" Maximum="100" Value="{Binding PresetInstallProgress}" Height="4" CornerRadius="2"
+                                                         Foreground="{DynamicResource AppAccentBrush}" Background="{DynamicResource AppSurfaceBrush}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 4. EXPERIMENTAL FEATURES -->
+                    <Border Classes="panel" ClipToBounds="True" IsVisible="False">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{loc:Loc ExperimentalFeaturesTitle}" FontWeight="SemiBold" FontSize="13"
+                                               Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                    <Border Background="#33FF9800" BorderBrush="#88FF9800" BorderThickness="1" CornerRadius="4" Padding="6,1" VerticalAlignment="Center">
+                                        <TextBlock Text="{loc:Loc ExperimentalBadge}" FontSize="9" FontWeight="Bold" Foreground="#FFA726"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="14">
+                                <!-- Enable Capture One Mode Toggle -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc EnableCaptureOneModeTitle}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc EnableCaptureOneModeDesc}" FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableCaptureOneMode, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <!-- Reference RAF Container File/Folder Selector (Visible when enabled) -->
+                                <Border IsVisible="{Binding ShowCaptureOneContainerSettings}"
+                                        Background="{DynamicResource AppSurfaceBrush}"
+                                        BorderBrush="{DynamicResource AppEdgeBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="14,12">
+                                    <StackPanel Spacing="10">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{loc:Loc RafContainerTitle}" FontWeight="SemiBold" FontSize="12" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <TextBlock Text="{loc:Loc RafContainerDesc}" FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap" LineHeight="16"/>
+                                            <WrapPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                <TextBlock Text="{loc:Loc RafContainerDownloadHint}" FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                                <Button Command="{Binding OpenPixlsUsCommand}" Classes="hyperlink" Margin="0,0,8,0">
+                                                    <TextBlock Text="raw.pixls.us ↗" Foreground="{DynamicResource AppAccentBrush}" TextDecorations="Underline" FontSize="11" VerticalAlignment="Center"/>
+                                                </Button>
+                                                <Button Command="{Binding OpenDngLabDbCommand}" Classes="hyperlink">
+                                                    <TextBlock Text="rawdb.dnglab.org ↗" Foreground="{DynamicResource AppAccentBrush}" TextDecorations="Underline" FontSize="11" VerticalAlignment="Center"/>
+                                                </Button>
+                                            </WrapPanel>
+                                        </StackPanel>
+
+                                        <!-- Action Buttons -->
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button Content="{loc:Loc BrowseFile}"
+                                                    Command="{Binding BrowseRafContainerFileCommand}"
+                                                    Classes="secondary" Height="30" Padding="12,0" CornerRadius="15"
+                                                    FontSize="11" VerticalContentAlignment="Center"/>
+                                            <Button Content="{loc:Loc BrowseFolder}"
+                                                    Command="{Binding BrowseRafContainerFolderCommand}"
+                                                    Classes="secondary" Height="30" Padding="12,0" CornerRadius="15"
+                                                    FontSize="11" VerticalContentAlignment="Center"/>
+                                            <Button Content="{loc:Loc Clear}"
+                                                    Command="{Binding ClearRafContainerCommand}"
+                                                    IsEnabled="{Binding HasRafContainers}"
+                                                    Classes="secondary" Height="30" Padding="12,0" CornerRadius="15"
+                                                    FontSize="11" VerticalContentAlignment="Center"/>
+                                        </StackPanel>
+
+                                        <!-- Container Counter (Positioned below buttons to prevent crowding/overflow) -->
+                                        <TextBlock Text="{Binding RafContainerCountText}"
+                                                   IsVisible="{Binding HasRafContainers}"
+                                                   FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}"
+                                                   Margin="2,0,0,0"/>
+
+                                        <!-- Saved Containers List (When present) -->
+                                        <Border IsVisible="{Binding HasRafContainers}"
+                                                Background="{DynamicResource AppSurfaceSecondaryBrush}"
+                                                BorderBrush="{DynamicResource AppEdgeBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="6"
+                                                MaxHeight="160"
+                                                ClipToBounds="True">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                <ItemsControl ItemsSource="{Binding RafContainers}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="{DynamicResource AppSurfaceBrush}"
+                                                                    BorderBrush="{DynamicResource AppEdgeBrush}"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="6"
+                                                                    Padding="10,6"
+                                                                    Margin="0,0,0,4">
+                                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                                    <!-- RAF Badge -->
+                                                                    <Border Grid.Column="0" Width="28" Height="20" CornerRadius="4"
+                                                                            Background="#1AFFFFFF" BorderBrush="#44FFFFFF" BorderThickness="1"
+                                                                            Margin="0,0,8,0" VerticalAlignment="Center">
+                                                                        <TextBlock Text="RAF" FontSize="9" FontWeight="Bold" Foreground="#FFFFFF"
+                                                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                    </Border>
+
+                                                                    <!-- filename.raf - Camera -->
+                                                                    <TextBlock Grid.Column="1" Text="{Binding DisplayText}"
+                                                                               FontSize="11" FontWeight="SemiBold"
+                                                                               Foreground="{DynamicResource AppTextPrimaryBrush}"
+                                                                               TextTrimming="CharacterEllipsis"
+                                                                               VerticalAlignment="Center"
+                                                                               ToolTip.Tip="{Binding FilePath}"/>
+
+                                                                    <!-- Remove button -->
+                                                                    <Button Grid.Column="2" Content="✕"
+                                                                            Command="{Binding RemoveCommand}"
+                                                                            Background="Transparent" BorderThickness="0"
+                                                                            Foreground="{DynamicResource AppTextSecondaryBrush}"
+                                                                            Width="22" Height="22" Padding="0"
+                                                                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                                                            Cursor="Hand" ToolTip.Tip="Remove container">
+                                                                        <Button.Styles>
+                                                                            <Style Selector="Button:pointerover">
+                                                                                <Setter Property="Foreground" Value="#E74C3C"/>
+                                                                                <Setter Property="Background" Value="Transparent"/>
+                                                                            </Style>
+                                                                        </Button.Styles>
+                                                                    </Button>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                        </Border>
+
+                                        <!-- Empty Notice (When no containers configured) -->
+                                        <Border IsVisible="{Binding !HasRafContainers}"
+                                                Background="{DynamicResource AppSurfaceSecondaryBrush}"
+                                                BorderBrush="{DynamicResource AppEdgeBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="12,10">
+                                            <TextBlock Text="{loc:Loc NoRafContainerConfigured}"
+                                                       FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}"
+                                                       TextWrapping="Wrap" LineHeight="16"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Auto-open in Capture One (Visible when enabled & supported) -->
+                                <Border IsVisible="{Binding ShowOpenInCaptureOne}"
+                                        Background="{DynamicResource AppSurfaceBrush}"
+                                        BorderBrush="{DynamicResource AppEdgeBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="14,12">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                            <TextBlock Text="{loc:Loc AutoOpenInCaptureOne}" FontWeight="SemiBold" FontSize="12.5" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <TextBlock Text="{loc:Loc AutoOpenInCaptureOneDesc}" FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsChecked="{Binding AutoOpenInCaptureOne, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 5. LICENSE & PLAN -->
+                    <Border Classes="panel" ClipToBounds="True" IsVisible="False">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <TextBlock Text="{loc:Loc LicenseAndPlan}" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="12">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="3">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="{Binding LicenseStatusText}" FontWeight="SemiBold" FontSize="13" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                            <Border Background="{DynamicResource AppAccentBrush}" CornerRadius="4" Padding="6,1" IsVisible="{Binding IsPro}" VerticalAlignment="Center">
+                                                <TextBlock Text="PRO ACTIVE" FontSize="9" FontWeight="Bold" Foreground="#252332"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding LicenseDescriptionText}" FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="{loc:Loc GetFujifierPro}" Command="{Binding UpgradeToProCommand}" Classes="primary" IsVisible="{Binding !IsPro}" Height="34" Padding="14,0" CornerRadius="17" VerticalContentAlignment="Center"/>
+                                </Grid>
+
+                                <!-- Active Devices Section (Visible when Pro or Connected to Account) -->
+                                <Border Background="{DynamicResource AppSurfaceSecondaryBrush}" BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,2,0,0" IsVisible="{Binding ShowDeviceManagement}">
+                                    <StackPanel Spacing="10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                                <TextBlock Text="{loc:Loc RegisteredDevices}" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource AppAccentLightBrush}"/>
+                                                <TextBlock Text="{Binding SlotInfoText}" FontSize="10.5" Foreground="{DynamicResource AppTextSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Command="{Binding RefreshDevicesCommand}" IsEnabled="{Binding !IsLoadingDevices}"
+                                                    Classes="secondary" Height="28" Padding="10,0" CornerRadius="14" VerticalContentAlignment="Center" FontSize="11"
+                                                    Cursor="Hand">
+                                                <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsHitTestVisible="False">
+                                                    <TextBlock Text="🔄" FontSize="10" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{loc:Loc RefreshDevices}" FontSize="11" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </Grid>
+
+                                        <!-- Callout to activate this device when slot is free -->
+                                        <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppAccentBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" IsVisible="{Binding CanActivateThisDevice}">
+                                            <Grid ColumnDefinitions="*,Auto">
+                                                <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" Margin="0,0,8,0">
+                                                    <TextBlock Text="{loc:Loc ActivateThisDevicePrompt}" FontWeight="SemiBold" FontSize="11.5" Foreground="{DynamicResource AppAccentLightBrush}"/>
+                                                    <TextBlock Text="{loc:Loc ActivateThisDeviceDesc}" FontSize="10" Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Content="{loc:Loc ActivateThisDevice}" Command="{Binding ActivateThisDeviceCommand}" Classes="primary" Height="30" Padding="14,0" CornerRadius="15" VerticalContentAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+
+                                        <!-- Registered Device Items -->
+                                        <ItemsControl ItemsSource="{Binding RegisteredDevices}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:LicenseDeviceItemViewModel">
+                                                    <Border Background="{DynamicResource AppBackgroundBrush}" BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,6">
+                                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                                            <!-- Platform Icon -->
+                                                            <Border Grid.Column="0" Width="30" Height="30" CornerRadius="6" Background="{DynamicResource AppSurfaceBrush}" Margin="0,0,10,0" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding PlatformIcon}" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Border>
+
+                                                            <!-- Device Details -->
+                                                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                                    <TextBlock Text="{Binding DeviceName}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                                                    <Border Background="#2575FC" CornerRadius="4" Padding="5,1" IsVisible="{Binding IsCurrentDevice}" VerticalAlignment="Center">
+                                                                        <TextBlock Text="{loc:Loc ThisDevice}" FontSize="8.5" FontWeight="Bold" Foreground="White"/>
+                                                                    </Border>
+                                                                </StackPanel>
+                                                                <TextBlock Text="{Binding DisplaySubtitle}" FontSize="10" Foreground="{DynamicResource AppTextSecondaryBrush}"/>
+                                                            </StackPanel>
+
+                                                            <!-- Deactivate Button -->
+                                                            <Button Grid.Column="2" Content="{loc:Loc Deactivate}"
+                                                                    Command="{Binding $parent[ItemsControl].((vm:PreferencesViewModel)DataContext).DeactivateDeviceCommand}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Classes="secondary" Height="26" Padding="10,0" CornerRadius="13" FontSize="10.5" VerticalContentAlignment="Center"/>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Connected Account Section (Visible when user is signed in) -->
+                                <Border Background="{DynamicResource AppSurfaceSecondaryBrush}" BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,2,0,0" IsVisible="{Binding IsAccountLoggedIn}">
+                                    <StackPanel Spacing="10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                <TextBlock Text="{loc:Loc FujiStudioAccount}" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource AppAccentLightBrush}"/>
+                                                <TextBlock Text="{Binding AccountDisplayText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource AppTextPrimaryBrush}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="{loc:Loc SignOut}" Command="{Binding LogoutAccountCommand}" Classes="secondary" Height="28" Padding="12,0" CornerRadius="14" VerticalContentAlignment="Center" FontSize="11"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,*">
+                                            <Button Grid.Column="0" Content="{loc:Loc ViewAccountOnWeb}" Command="{Binding OpenAccountDashboardCommand}" Classes="secondary" Height="30" Padding="10,0" CornerRadius="15" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Margin="0,0,4,0" FontSize="11"/>
+                                            <Button Grid.Column="1" Content="{loc:Loc RetrieveLicense}" Command="{Binding RetrieveLicenseCommand}" IsEnabled="{Binding !IsRetrievingLicense}" Classes="secondary" Height="30" Padding="10,0" CornerRadius="15" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Margin="4,0,0,0" FontSize="11"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Activation Options when in Free Tier and not signed in -->
+                                <StackPanel Spacing="10" IsVisible="{Binding !IsAccountLoggedIn}">
+                                    <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+                                    
+                                    <!-- Tabs for Activation Mode: Account/Google vs Key -->
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <RadioButton Content="{loc:Loc SignInGoogleOrAccount}" IsChecked="{Binding IsAccountTabActive, Mode=OneWay}" Command="{Binding SetAccountTabCommand}" GroupName="ActivationMode" FontSize="11.5"/>
+                                        <RadioButton Content="{loc:Loc EnterLicenseKeyTab}" IsChecked="{Binding IsKeyTabActive, Mode=OneWay}" Command="{Binding SetKeyTabCommand}" GroupName="ActivationMode" FontSize="11.5"/>
+                                    </StackPanel>
+
+                                    <!-- Option A: Google OAuth & Account Sign In -->
+                                    <StackPanel Spacing="10" IsVisible="{Binding IsAccountTabActive}">
+                                        <!-- Google Sign-In Button -->
+                                        <Button Command="{Binding LoginWithGoogleCommand}" IsEnabled="{Binding !IsGoogleLoggingIn}"
+                                                Classes="secondary" Height="36" CornerRadius="18" Padding="14,0" HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                                <Viewbox Width="15" Height="15" VerticalAlignment="Center">
+                                                    <Canvas Width="24" Height="24">
+                                                        <Path Fill="#4285F4" Data="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.04h3.87c2.26-2.09 3.67-5.17 3.67-9.14z"/>
+                                                        <Path Fill="#34A853" Data="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.87-3.04c-1.08.72-2.45 1.16-4.06 1.16-3.13 0-5.78-2.11-6.73-4.96H1.25v3.13C3.25 21.31 7.35 24 12 24z"/>
+                                                        <Path Fill="#FBBC05" Data="M5.27 14.25c-.25-.72-.38-1.49-.38-2.25s.13-1.53.38-2.25V6.62H1.25C.45 8.24 0 10.06 0 12s.45 3.76 1.25 5.38l4.02-3.13z"/>
+                                                        <Path Fill="#EA4335" Data="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.35 0 3.25 2.69 1.25 6.62l4.02 3.13c.95-2.85 3.6-4.96 6.73-4.96z"/>
+                                                    </Canvas>
+                                                </Viewbox>
+                                                <TextBlock Text="{loc:Loc ContinueWithGoogle}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <!-- Divider -->
+                                        <Grid ColumnDefinitions="*,Auto,*" Margin="0,2">
+                                            <Separator Grid.Column="0" Height="1" Background="{DynamicResource AppEdgeBrush}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{loc:Loc OrSignInWithAccount}" FontSize="10.5" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="8,0" VerticalAlignment="Center"/>
+                                            <Separator Grid.Column="2" Height="1" Background="{DynamicResource AppEdgeBrush}" VerticalAlignment="Center"/>
+                                        </Grid>
+
+                                        <!-- Email and Password -->
+                                        <Grid ColumnDefinitions="*,*" Margin="0,2,0,0">
+                                            <TextBox Grid.Column="0" Text="{Binding AccountEmailInput, Mode=TwoWay}" PlaceholderText="{loc:Loc AccountEmailWatermark}" Height="32" CornerRadius="8" FontSize="11" BorderThickness="1" BorderBrush="{DynamicResource AppEdgeBrush}" Background="{DynamicResource AppSurfaceSecondaryBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalContentAlignment="Center" Margin="0,0,6,0"/>
+                                            <TextBox Grid.Column="1" Text="{Binding AccountPasswordInput, Mode=TwoWay}" PasswordChar="●" PlaceholderText="{loc:Loc AccountPasswordWatermark}" Height="32" CornerRadius="8" FontSize="11" BorderThickness="1" BorderBrush="{DynamicResource AppEdgeBrush}" Background="{DynamicResource AppSurfaceSecondaryBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalContentAlignment="Center" Margin="6,0,0,0"/>
+                                        </Grid>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                                            <Button Grid.Column="0" Content="{loc:Loc ForgotPassword}" Command="{Binding ForgotPasswordCommand}"
+                                                    Background="Transparent" BorderThickness="0" Padding="0" Cursor="Hand"
+                                                    Foreground="{DynamicResource AppAccentBrush}" FontSize="11" HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1" Content="{loc:Loc SignInAndSyncLicense}" Command="{Binding AccountLoginCommand}" Classes="primary" HorizontalAlignment="Right" Height="32" Padding="16,0" CornerRadius="16" VerticalContentAlignment="Center"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <!-- Option B: Direct License Key Input -->
+                                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsKeyTabActive}">
+                                        <TextBox Grid.Column="0" Text="{Binding LicenseKeyInput, Mode=TwoWay}" PlaceholderText="{loc:Loc LicenseKeyWatermark}" Height="34" CornerRadius="8" FontSize="11" BorderThickness="1" BorderBrush="{DynamicResource AppEdgeBrush}" Background="{DynamicResource AppSurfaceSecondaryBrush}" Foreground="{DynamicResource AppTextPrimaryBrush}" VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+                                        <Button Grid.Column="1" Content="{loc:Loc ActivateKey}" Command="{Binding ActivateLicenseCommand}" Classes="primary" Height="34" Padding="16,0" CornerRadius="17" VerticalContentAlignment="Center"/>
+                                    </Grid>
+                                </StackPanel>
+
+                                <!-- Live Status Feedback Message -->
+                                <TextBlock Text="{Binding LicenseMessageText}" FontSize="11" Foreground="{Binding LicenseMessageColor}" IsVisible="{Binding HasLicenseMessage}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 5. UPDATES -->
+                    <Border Classes="panel" ClipToBounds="True" IsVisible="False">
+                        <Grid RowDefinitions="Auto,*">
+                            <!-- Inner Group Header -->
+                            <Border Grid.Row="0" Padding="18,12" Background="Transparent"
+                                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="0,0,0,1">
+                                <TextBlock Text="{loc:Loc Updates}" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                            </Border>
+
+                            <!-- Group Content -->
+                            <StackPanel Grid.Row="1" Margin="18,14" Spacing="12">
+                                <!-- Check on startup toggle -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{loc:Loc CheckForUpdatesOnStartup}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{loc:Loc CheckForUpdatesOnStartupDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding CheckForUpdatesOnStartup}" OnContent="" OffContent=""/>
+                                </Grid>
+
+                                <Separator Height="1" Background="{DynamicResource AppEdgeBrush}"/>
+
+                                <!-- Manual Check Button -->
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2" Margin="0,0,12,0">
+                                        <TextBlock Text="{Binding CurrentAppVersionText}" FontWeight="SemiBold" FontSize="12"
+                                                   Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                                        <TextBlock Text="{Binding UpdateStatusMessage}" FontSize="11"
+                                                   Foreground="{Binding UpdateStatusColor}"
+                                                   IsVisible="{Binding HasUpdateStatusMessage}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{loc:Loc CheckUpdatesDesc}" FontSize="11"
+                                                   Foreground="{DynamicResource AppTextSecondaryBrush}"
+                                                   IsVisible="{Binding !HasUpdateStatusMessage}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="{loc:Loc CheckNow}" Command="{Binding CheckForUpdatesCommand}"
+                                            IsEnabled="{Binding !IsCheckingForUpdate}"
+                                            Classes="secondary" Height="34" Padding="16,0" CornerRadius="17"
+                                            VerticalContentAlignment="Center"/>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Footer Buttons -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
+                <Button Content="{loc:Loc Cancel}" Command="{Binding CancelCommand}" Classes="secondary" Width="90" Height="36" CornerRadius="18"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                <Button Content="{loc:Loc Done}" Command="{Binding SaveCommand}" Classes="primary" Width="90" Height="36" CornerRadius="18"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+        </Panel>
+    </Border>
+</Window>

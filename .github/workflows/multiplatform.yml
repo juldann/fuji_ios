@@ -1,0 +1,113 @@
+name: Build FujiStudio iOS IPA
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build FujiStudio IPA (iPhone & iPad)
+    runs-on: macos-15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Remove global.json for iOS Job
+        run: rm -f global.json
+
+      - name: Select Latest Xcode
+        run: |
+          SELECTED_XCODE=""
+          for xc in /Applications/Xcode_16.4.app /Applications/Xcode_16.3.app /Applications/Xcode_16.2.app /Applications/Xcode_16.1.app /Applications/Xcode.app $(ls -d /Applications/Xcode*.app 2>/dev/null); do
+            if [ -x "$xc/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++" ] && [ -d "$xc/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs" ]; then
+              if "$xc/Contents/Developer/usr/bin/xcodebuild" -sdk macosx -version >/dev/null 2>&1; then
+                SELECTED_XCODE="$xc"
+                break
+              fi
+            fi
+          done
+          if [ -n "$SELECTED_XCODE" ]; then
+            sudo xcode-select -s "$SELECTED_XCODE/Contents/Developer"
+          fi
+          xcodebuild -version
+
+      - name: Setup .NET with Workloads
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install iOS Workload
+        run: dotnet workload install ios
+
+      - name: Cache Rust iOS Toolchain & Target Artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            native/dnglab_ffi/target/
+            tools/Raw2Raf/target/
+          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('native/dnglab_ffi/Cargo.lock', 'native/dnglab_ffi/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-ios-
+
+      - name: Build Native Rust Libraries for iOS (dnglab_ffi & raw2raf_ffi)
+        run: |
+          rustup target add aarch64-apple-ios
+          cd native/dnglab_ffi
+          cargo build --release --target aarch64-apple-ios
+          cd ../..
+
+          if [ ! -f "tools/Raw2Raf/Cargo.toml" ]; then
+            rm -rf tools/Raw2Raf
+            mkdir -p tools
+            git clone --depth 1 https://github.com/ip-web/Raw2Raf.git tools/Raw2Raf
+          fi
+          cd tools/Raw2Raf
+          cargo build --release --target aarch64-apple-ios
+          cd ../..
+
+          mkdir -p Fujify.iOS/Frameworks
+          if [ -f native/dnglab_ffi/target/aarch64-apple-ios/release/libdnglab_ffi.dylib ]; then
+            cp native/dnglab_ffi/target/aarch64-apple-ios/release/libdnglab_ffi.dylib Fujify.iOS/Frameworks/
+          fi
+          if [ -f tools/Raw2Raf/target/aarch64-apple-ios/release/libraw2raf_ffi.dylib ]; then
+            cp tools/Raw2Raf/target/aarch64-apple-ios/release/libraw2raf_ffi.dylib Fujify.iOS/Frameworks/
+          fi
+
+      - name: Restore iOS Project
+        run: dotnet restore Fujify.iOS/Fujify.iOS.csproj
+
+      - name: Build and Package iOS IPA
+        run: |
+          rm -rf ./publish
+          dotnet build Fujify.iOS/Fujify.iOS.csproj -f net10.0-ios -c Release -r ios-arm64 -p:EnableCodeSigning=false -p:CodesignKey="-" -p:ValidateXcodeVersion=false -p:_SuppressXcodeRequirementCheck=true -p:Registrar=dynamic -p:DynamicRegistrationSupported=true -p:MtouchExtraArgs="--registrar:dynamic" -p:MtouchEnableDsym=false
+          APP_PATH=$(find Fujify.iOS/bin -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: No .app bundle found!"
+            exit 1
+          fi
+          find "$APP_PATH" -name "*.a" -delete
+          mkdir -p "$APP_PATH/Frameworks"
+          if [ -f native/dnglab_ffi/target/aarch64-apple-ios/release/libdnglab_ffi.dylib ]; then
+            cp native/dnglab_ffi/target/aarch64-apple-ios/release/libdnglab_ffi.dylib "$APP_PATH/Frameworks/"
+            cp native/dnglab_ffi/target/aarch64-apple-ios/release/libdnglab_ffi.dylib "$APP_PATH/"
+          fi
+          if [ -f tools/Raw2Raf/target/aarch64-apple-ios/release/libraw2raf_ffi.dylib ]; then
+            cp tools/Raw2Raf/target/aarch64-apple-ios/release/libraw2raf_ffi.dylib "$APP_PATH/Frameworks/"
+            cp tools/Raw2Raf/target/aarch64-apple-ios/release/libraw2raf_ffi.dylib "$APP_PATH/"
+          fi
+          mkdir -p ./publish/Payload
+          cp -R "$APP_PATH" ./publish/Payload/
+          cd ./publish
+          zip -r -y FujiStudio-iOS.ipa Payload
+          cd ..
+
+      - name: Upload iOS IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fujistudio-ios-ipa
+          path: ./publish/FujiStudio-iOS.ipa

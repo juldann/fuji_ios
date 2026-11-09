@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="using:Fujify.Localization"
+        x:Class="Fujify.Views.MessageDialog"
+        Title="{loc:Loc Notification}"
+        Width="360" Height="220"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="0"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        Icon="/Assets/images/logo.ico">
+
+    <!-- Standalone Dialog Card Block -->
+    <Border Classes="dialog-card"
+            Background="{DynamicResource AppSurfaceBrush}"
+            BorderBrush="{DynamicResource AppEdgeBrush}"
+            BorderThickness="1"
+            CornerRadius="16"
+            Padding="24"
+            ClipToBounds="True"
+            PointerPressed="Window_PointerPressed">
+        <Grid RowDefinitions="Auto,*,Auto" VerticalAlignment="Center">
+            <!-- Icon -->
+            <Border x:Name="IconBorder" Grid.Row="0" Width="44" Height="44" CornerRadius="22"
+                    Background="#1AB89BE4"
+                    HorizontalAlignment="Center" Margin="0,0,0,10">
+                <TextBlock x:Name="IconText" Text="✔" FontSize="20" Foreground="{DynamicResource AppAccentLightBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+
+            <!-- Text Content -->
+            <StackPanel Grid.Row="1" Spacing="4" HorizontalAlignment="Center">
+                <TextBlock x:Name="TitleText" FontWeight="SemiBold" FontSize="15"
+                           Foreground="{DynamicResource AppTextPrimaryBrush}"
+                           HorizontalAlignment="Center" TextAlignment="Center"/>
+                <TextBlock x:Name="MessageContent" FontSize="11.5" TextWrapping="Wrap" 
+                           Foreground="{DynamicResource AppTextSecondaryBrush}"
+                           HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="290"/>
+            </StackPanel>
+
+            <!-- Centered Action -->
+            <Button Grid.Row="2" Content="{loc:Loc Done}" Click="Ok_Click" Classes="primary"
+                    Height="34" Padding="28,0" CornerRadius="17"
+                    HorizontalAlignment="Center" HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center" Margin="0,14,0,0"/>
+        </Grid>
+    </Border>
+</Window>

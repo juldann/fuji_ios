@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Fujify.ViewModels"
+        xmlns:views="using:Fujify.Views"
+        x:Class="Fujify.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="FujiStudio - Fujifilm Film Simulation Engine"
+        Width="1180" Height="800"
+        MinWidth="380" MinHeight="420"
+        WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        WindowDecorations="Full"
+        ExtendClientAreaTitleBarHeightHint="34"
+        TransparencyLevelHint="Mica, AcrylicBlur"
+        Background="Transparent"
+        Icon="/Assets/images/logo.ico">
+
+    <Window.Styles>
+        <Style Selector="Button#PART_FullScreenButton">
+            <Setter Property="IsVisible" Value="False"/>
+            <Setter Property="Width" Value="0"/>
+            <Setter Property="MaxWidth" Value="0"/>
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+        <!-- Window Drawn Decorations: standard arrow cursor on full button square, suppress tooltips -->
+        <Style Selector="WindowDrawnDecorations Button">
+            <Setter Property="Cursor" Value="Arrow"/>
+            <Setter Property="ToolTip.Tip" Value="{x:Null}"/>
+        </Style>
+        <Style Selector="WindowDrawnDecorations Button /template/ ContentPresenter">
+            <Setter Property="Cursor" Value="Arrow"/>
+        </Style>
+        <Style Selector="WindowDrawnDecorations Button /template/ Viewbox">
+            <Setter Property="Cursor" Value="Arrow"/>
+        </Style>
+        <Style Selector="WindowDrawnDecorations Button /template/ Path">
+            <Setter Property="Cursor" Value="Arrow"/>
+        </Style>
+
+
+
+        <Style Selector="WindowDrawnDecorations /template/ Button#PART_FullScreenButton">
+            <Setter Property="IsVisible" Value="False"/>
+            <Setter Property="Width" Value="0"/>
+            <Setter Property="MaxWidth" Value="0"/>
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+    </Window.Styles>
+
+    <views:MainView />
+</Window>

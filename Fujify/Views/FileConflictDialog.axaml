@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Fujify.ViewModels"
+        xmlns:loc="using:Fujify.Localization"
+        x:Class="Fujify.Views.FileConflictDialog"
+        x:DataType="vm:FileConflictDialogViewModel"
+        Title="{loc:Loc FileConflictTitle}"
+        Width="470" Height="290"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="0"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        Icon="/Assets/images/logo.ico">
+
+    <!-- Standalone Dialog Card Block -->
+    <Border Classes="dialog-card"
+            Background="{DynamicResource AppSurfaceBrush}"
+            BorderBrush="{DynamicResource AppEdgeBrush}"
+            BorderThickness="1"
+            CornerRadius="16"
+            Padding="22"
+            ClipToBounds="True"
+            PointerPressed="Window_PointerPressed">
+        <Grid RowDefinitions="Auto,*,Auto,Auto">
+            <!-- Title and Icon -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" Margin="0,0,0,14">
+                <Border Width="36" Height="36" CornerRadius="18" Background="#2A2418" BorderBrush="#44F39C12" BorderThickness="1">
+                    <TextBlock Text="⚠" FontSize="16" Foreground="#F39C12" 
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="{loc:Loc FileConflictTitle}" FontWeight="SemiBold" FontSize="15"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                    <TextBlock Text="{loc:Loc FileConflictPrompt}" 
+                               Foreground="{DynamicResource AppTextSecondaryBrush}" FontSize="11"/>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- File Details -->
+            <Border Grid.Row="1" Background="{DynamicResource AppSurfaceSecondaryBrush}" 
+                    BorderBrush="{DynamicResource AppEdgeBrush}" BorderThickness="1"
+                    CornerRadius="10" Padding="12" Margin="0,0,0,14">
+                <StackPanel Spacing="3">
+                    <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="13"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding DirectoryPath}" FontSize="10.5" 
+                               Foreground="{DynamicResource AppTextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Apply to All Checkbox -->
+            <CheckBox Grid.Row="2" Content="{loc:Loc ApplyToAllConflicts}" 
+                      IsChecked="{Binding ApplyToAll}" Margin="0,0,0,14" FontSize="11.5"/>
+
+            <!-- Action Buttons -->
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="{loc:Loc ConflictSkip}" Command="{Binding SkipCommand}" Classes="secondary" Height="36" Padding="16,0" CornerRadius="18"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                <Button Content="{loc:Loc ConflictKeepBoth}" Command="{Binding UseUniqueNameCommand}" Classes="secondary" Height="36" Padding="16,0" CornerRadius="18"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                <Button Content="{loc:Loc ConflictOverwrite}" Command="{Binding OverwriteCommand}" Classes="primary" Height="36" Padding="18,0" CornerRadius="18"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

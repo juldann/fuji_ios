@@ -1,0 +1,840 @@
+/*
+ * This file is part of Fujify.
+ *
+ * Copyright (C) 2024 Isidore Paulin contact@ipweb.dev
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+using System;
+using System.Linq;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Media.Transformation;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using Fujify.Models;
+using Fujify.ViewModels;
+
+namespace Fujify.Views
+{
+    public partial class MainView : UserControl
+    {
+        private Grid? _prefPanel;
+        private Grid? _aboutPanel;
+        private System.Threading.CancellationTokenSource? _prefPanelCts;
+        private System.Threading.CancellationTokenSource? _aboutPanelCts;
+        private double _keyboardHeight = 0;
+        private Avalonia.Thickness _lastInsets = new Avalonia.Thickness(0, 47, 0, 24);
+
+        public MainView()
+        {
+            InitializeComponent();
+            AddHandler(DragDrop.DragEnterEvent, View_DragEnter);
+            AddHandler(DragDrop.DragLeaveEvent, View_DragLeave);
+            AddHandler(DragDrop.DragOverEvent, View_DragOver);
+            AddHandler(DragDrop.DropEvent, View_Drop);
+
+            if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS())
+            {
+                AddHandler(Control.ContextRequestedEvent, (s, e) => e.Handled = true, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+            }
+        }
+
+        protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+            _prefPanel = this.FindControl<Grid>("PreferencesSlidePanel");
+            _aboutPanel = this.FindControl<Grid>("AboutSlidePanel");
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel != null && (System.OperatingSystem.IsAndroid() || System.OperatingSystem.IsIOS()))
+            {
+                TopLevel.SetAutoSafeAreaPadding(this, false);
+                TopLevel.SetAutoSafeAreaPadding(topLevel, false);
+
+                if (topLevel.InsetsManager != null)
+                {
+                    var mgr = topLevel.InsetsManager;
+                    mgr.DisplayEdgeToEdgePreference = true;
+                    _lastInsets = mgr.SafeAreaPadding;
+                    ApplySafeArea(_lastInsets);
+                    mgr.SafeAreaChanged += (s, args) =>
+                    {
+                        _lastInsets = args.SafeAreaPadding;
+                        ApplySafeArea(_lastInsets);
+                    };
+                }
+                else
+                {
+                    _lastInsets = new Avalonia.Thickness(0, 47, 0, 24);
+                    ApplySafeArea(_lastInsets);
+                }
+
+                if (topLevel.InputPane != null)
+                {
+                    topLevel.InputPane.StateChanged += (s, args) =>
+                    {
+                        _keyboardHeight = args.EndRect.Height;
+                        ApplySafeArea(_lastInsets);
+
+                        if (args.NewState == Avalonia.Controls.Platform.InputPaneState.Open)
+                        {
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                if (topLevel.FocusManager?.GetFocusedElement() is Control focusedControl)
+                                {
+                                    BringControlIntoView(focusedControl);
+                                }
+                            }, Avalonia.Threading.DispatcherPriority.Background);
+                        }
+                    };
+                }
+
+                AddHandler(InputElement.GotFocusEvent, (s, e) =>
+                {
+                    if (e.Source is Avalonia.Visual visual)
+                    {
+                        var target = visual.FindAncestorOfType<TextBox>() ?? (visual as Control);
+                        if (target != null)
+                        {
+                            BringControlIntoView(target);
+                        }
+                    }
+                }, RoutingStrategies.Bubble);
+
+                Fujify.Services.AdService.BannerVisibilityChanged += (visible) =>
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplySafeArea(_lastInsets));
+                };
+                Fujify.Services.LicenseService.AnyLicenseChanged += (s, status) =>
+                {
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplySafeArea(_lastInsets));
+                };
+            }
+
+            UpdateSlidePanels(animated: false);
+            SetupTouchScroll("MobileSidebarScrollViewer");
+            SetupTouchScroll("PreferencesScrollViewer");
+            SetupTouchScroll("AboutScrollViewer");
+
+            if (VisualRoot is Window window)
+            {
+                window.Activated += (ws, wargs) =>
+                {
+                    if (DataContext is MainViewModel vm) vm.IsWindowActive = true;
+                };
+                window.Deactivated += (ws, wargs) =>
+                {
+                    if (DataContext is MainViewModel vm) vm.IsWindowActive = false;
+                };
+                if (DataContext is MainViewModel vmAttached)
+                {
+                    vmAttached.IsWindowActive = window.IsActive;
+                }
+
+                window.PropertyChanged += (ws, wargs) =>
+                {
+                    if (wargs.Property == Window.WindowStateProperty)
+                    {
+                        UpdateMaximizeButtonGlyph(window.WindowState == WindowState.Maximized);
+                    }
+                };
+                UpdateMaximizeButtonGlyph(window.WindowState == WindowState.Maximized);
+            }
+        }
+
+        private void UpdateMaximizeButtonGlyph(bool isMaximized)
+        {
+            string glyph = isMaximized ? "\u29C9" : "\u25A2";
+            string tooltip = isMaximized ? "Restore" : "Maximize";
+
+            var maxGlyph = this.FindControl<TextBlock>("TitleBarMaximizeGlyph");
+            if (maxGlyph != null) maxGlyph.Text = glyph;
+
+            var maxBtn = this.FindControl<Button>("TitleBarMaximizeButton");
+            if (maxBtn != null) ToolTip.SetTip(maxBtn, tooltip);
+
+            var narrowGlyph = this.FindControl<TextBlock>("NarrowTitleBarMaximizeGlyph");
+            if (narrowGlyph != null) narrowGlyph.Text = glyph;
+
+            var narrowBtn = this.FindControl<Button>("NarrowTitleBarMaximizeButton");
+            if (narrowBtn != null) ToolTip.SetTip(narrowBtn, tooltip);
+        }
+
+        private void SetupTouchScroll(string controlName)
+        {
+            var sv = this.FindControl<ScrollViewer>(controlName);
+            if (sv == null) return;
+
+            try
+            {
+                sv.GestureRecognizers.Add(new Avalonia.Input.GestureRecognizers.ScrollGestureRecognizer
+                {
+                    CanHorizontallyScroll = false,
+                    CanVerticallyScroll = true,
+                    ScrollStartDistance = 6
+                });
+            }
+            catch
+            {
+                // Ignore if already attached
+            }
+
+            Avalonia.Point dragStartPos = default;
+            double dragStartOffset = 0;
+            bool isDragging = false;
+
+            sv.AddHandler(InputElement.PointerPressedEvent, (s, e) =>
+            {
+                var point = e.GetCurrentPoint(sv);
+                if (point.Properties.IsLeftButtonPressed || e.Pointer.Type == PointerType.Touch || e.Pointer.Type == PointerType.Pen)
+                {
+                    dragStartPos = e.GetPosition(this);
+                    dragStartOffset = sv.Offset.Y;
+                    isDragging = true;
+                }
+            }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+
+            sv.AddHandler(InputElement.PointerMovedEvent, (s, e) =>
+            {
+                if (!isDragging) return;
+                var currentPos = e.GetPosition(this);
+                var deltaY = dragStartPos.Y - currentPos.Y;
+                if (Math.Abs(deltaY) > 4)
+                {
+                    double maxScroll = Math.Max(0, Math.Max(sv.ScrollBarMaximum.Y, sv.Extent.Height - sv.Viewport.Height));
+                    if (maxScroll > 0)
+                    {
+                        double targetY = Math.Clamp(dragStartOffset + deltaY, 0, maxScroll);
+                        sv.Offset = new Avalonia.Vector(sv.Offset.X, targetY);
+                    }
+                }
+            }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+
+            sv.AddHandler(InputElement.PointerReleasedEvent, (s, e) =>
+            {
+                isDragging = false;
+            }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+
+            sv.AddHandler(InputElement.PointerCaptureLostEvent, (s, e) =>
+            {
+                isDragging = false;
+            }, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        }
+
+        private void ApplySafeArea(Avalonia.Thickness insets)
+        {
+            double topInset = System.Math.Max(0, insets.Top);
+            double bottomInset = System.Math.Max(0, insets.Bottom);
+            double leftInset = System.Math.Max(0, insets.Left);
+            double rightInset = System.Math.Max(0, insets.Right);
+
+            // On mobile platforms, if insets manager was unavailable and reported 0
+            if ((System.OperatingSystem.IsAndroid() || System.OperatingSystem.IsIOS()) && topInset == 0 && bottomInset == 0)
+            {
+                topInset = 47;
+                bottomInset = 24;
+            }
+
+            // On mobile platforms, reserve space for ad banner when ads should be shown
+            bool showBanner = Fujify.Services.AdService.Instance?.ShouldShowAds ?? true;
+
+            // On Android version, add extra padding on top (camera punch hole / status bar) and bottom (navigation / ad banner)
+            if (System.OperatingSystem.IsAndroid())
+            {
+                topInset += 12;
+                if (showBanner)
+                {
+                    bottomInset += 54;
+                }
+            }
+            else if (System.OperatingSystem.IsIOS())
+            {
+                if (showBanner)
+                {
+                    bottomInset += 50;
+                }
+            }
+
+            double effectiveBottomInset = bottomInset + _keyboardHeight;
+
+            var header = this.FindControl<Border>("HeaderBar");
+            if (header != null)
+            {
+                header.Padding = new Avalonia.Thickness(16 + leftInset, 4 + topInset, 16 + rightInset, 6);
+            }
+
+            var phoneTop = this.FindControl<Border>("PhoneTopBar");
+            if (phoneTop != null)
+            {
+                phoneTop.Padding = new Avalonia.Thickness(16 + leftInset, 8 + topInset, 16 + rightInset, 6);
+            }
+
+            var mobileSheet = this.FindControl<Border>("MobileSidebarSheet");
+            if (mobileSheet != null)
+            {
+                mobileSheet.Margin = new Avalonia.Thickness(0, 40, 0, effectiveBottomInset);
+                mobileSheet.Padding = new Avalonia.Thickness(0);
+                mobileSheet.MinHeight = _keyboardHeight > 0 ? 160 : 320;
+            }
+
+            var mobileScroll = this.FindControl<ScrollViewer>("MobileSidebarScrollViewer");
+            if (mobileScroll != null)
+            {
+                mobileScroll.Padding = new Avalonia.Thickness(18, 14, 18, _keyboardHeight > 0 ? 80 : 48);
+            }
+
+            var phoneBottom = this.FindControl<Border>("PhoneBottomBar");
+            if (phoneBottom != null)
+            {
+                phoneBottom.Padding = new Avalonia.Thickness(16 + leftInset, 6, 16 + rightInset, 6 + bottomInset);
+            }
+
+            var tabletBottom = this.FindControl<Border>("TabletBottomBar");
+            if (tabletBottom != null)
+            {
+                tabletBottom.Padding = new Avalonia.Thickness(16 + leftInset, 6, 16 + rightInset, 6 + bottomInset);
+            }
+
+            var prefHeader = this.FindControl<Border>("PreferencesHeaderBar");
+            if (prefHeader != null)
+            {
+                prefHeader.Padding = new Avalonia.Thickness(16 + leftInset, 4 + topInset, 16 + rightInset, 6);
+            }
+
+            var prefRoot = this.FindControl<Grid>("PreferencesRootGrid");
+            if (prefRoot != null)
+            {
+                prefRoot.Margin = new Avalonia.Thickness(0, 0, 0, effectiveBottomInset);
+            }
+
+            var prefStack = this.FindControl<StackPanel>("PreferencesContentStack");
+            if (prefStack != null)
+            {
+                prefStack.Margin = new Avalonia.Thickness(16 + leftInset, 12, 16 + rightInset, _keyboardHeight > 0 ? 120 : 24);
+            }
+
+            var prefScroll = this.FindControl<ScrollViewer>("PreferencesScrollViewer");
+            if (prefScroll != null)
+            {
+                prefScroll.Padding = new Avalonia.Thickness(0);
+            }
+
+            var aboutHeader = this.FindControl<Border>("AboutHeaderBar");
+            if (aboutHeader != null)
+            {
+                aboutHeader.Padding = new Avalonia.Thickness(16 + leftInset, 4 + topInset, 16 + rightInset, 6);
+            }
+
+            var aboutRoot = this.FindControl<Grid>("AboutRootGrid");
+            if (aboutRoot != null)
+            {
+                aboutRoot.Margin = new Avalonia.Thickness(0, 0, 0, effectiveBottomInset);
+            }
+
+            var aboutStack = this.FindControl<StackPanel>("AboutContentStack");
+            if (aboutStack != null)
+            {
+                aboutStack.Margin = new Avalonia.Thickness(20 + leftInset, 20, 20 + rightInset, 24);
+            }
+
+            var aboutScroll = this.FindControl<ScrollViewer>("AboutScrollViewer");
+            if (aboutScroll != null)
+            {
+                aboutScroll.Padding = new Avalonia.Thickness(0);
+            }
+
+            var modal = this.FindControl<Border>("ModalDialogContainer");
+            if (modal != null)
+            {
+                modal.Margin = new Avalonia.Thickness(16 + leftInset, 16 + topInset, 16 + rightInset, 16 + bottomInset);
+            }
+        }
+
+        private void BringControlIntoView(Control control)
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    control.BringIntoView();
+                }
+                catch { }
+            }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        private void UpdateSlidePanels(bool animated = true)
+        {
+            if (DataContext is not MainViewModel vm) return;
+
+            double width = Bounds.Width > 0 ? Bounds.Width : 2000;
+
+            if (_prefPanel != null)
+            {
+                bool isOpen = vm.IsPreferencesModal;
+                UpdatePanelState(_prefPanel, isOpen, width, animated, ref _prefPanelCts);
+            }
+
+            if (_aboutPanel != null)
+            {
+                bool isOpen = vm.IsAboutModal;
+                UpdatePanelState(_aboutPanel, isOpen, width, animated, ref _aboutPanelCts);
+            }
+        }
+
+        private void UpdatePanelState(Grid panel, bool isOpen, double width, bool animated, ref System.Threading.CancellationTokenSource? cts)
+        {
+            cts?.Cancel();
+            cts = null;
+
+            if (isOpen)
+            {
+                panel.IsHitTestVisible = true;
+                panel.IsVisible = true;
+                panel.RenderTransform = TransformOperations.Parse("translateX(0px)");
+            }
+            else
+            {
+                panel.IsHitTestVisible = false;
+
+                if (animated && panel.IsVisible)
+                {
+                    panel.RenderTransform = TransformOperations.Parse($"translateX({width}px)");
+                    var currentCts = new System.Threading.CancellationTokenSource();
+                    cts = currentCts;
+                    _ = System.Threading.Tasks.Task.Delay(270, currentCts.Token).ContinueWith(t =>
+                    {
+                        if (!t.IsCanceled)
+                        {
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                            {
+                                if (!currentCts.IsCancellationRequested)
+                                {
+                                    panel.IsVisible = false;
+                                }
+                            });
+                        }
+                    });
+                }
+                else
+                {
+                    panel.RenderTransform = TransformOperations.Parse($"translateX({width}px)");
+                    panel.IsVisible = false;
+                }
+            }
+        }
+
+        protected override void OnSizeChanged(SizeChangedEventArgs e)
+        {
+            base.OnSizeChanged(e);
+            try
+            {
+                if (DataContext is MainViewModel vm)
+                {
+                    vm.UpdateLayoutMode(e.NewSize.Width, e.NewSize.Height);
+                    var queueCard = this.FindControl<Border>("PhotoQueuePanel");
+                    if (queueCard != null && queueCard.Bounds.Width > 0)
+                    {
+                        vm.IsQueueFabMode = queueCard.Bounds.Width < 460;
+                    }
+                }
+                UpdateSlidePanels(animated: false);
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainView] OnSizeChanged handled exception: {ex}");
+            }
+        }
+
+        protected override void OnDataContextChanged(System.EventArgs e)
+        {
+            base.OnDataContextChanged(e);
+            if (DataContext is MainViewModel vm)
+            {
+                vm.PropertyChanged += (s, args) =>
+                {
+                    if (args.PropertyName == nameof(MainViewModel.IsPreferencesModal) ||
+                        args.PropertyName == nameof(MainViewModel.IsAboutModal))
+                    {
+                        UpdateSlidePanels(animated: true);
+                    }
+                };
+
+                if (Bounds.Width > 0)
+                {
+                    vm.UpdateLayoutMode(Bounds.Width, Bounds.Height);
+                    var queueCard = this.FindControl<Border>("PhotoQueuePanel");
+                    if (queueCard != null && queueCard.Bounds.Width > 0)
+                    {
+                        vm.IsQueueFabMode = queueCard.Bounds.Width < 460;
+                    }
+                }
+                UpdateSlidePanels(animated: false);
+            }
+        }
+
+        private void View_DragEnter(object? sender, DragEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && e.DataTransfer.Contains(DataFormat.File))
+            {
+                vm.IsDragOver = true;
+            }
+        }
+
+        private void View_DragLeave(object? sender, DragEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.IsDragOver = false;
+            }
+        }
+
+        private void View_DragOver(object? sender, DragEventArgs e)
+        {
+            if (e.DataTransfer.Contains(DataFormat.File))
+            {
+                e.DragEffects = DragDropEffects.Copy;
+            }
+            else
+            {
+                e.DragEffects = DragDropEffects.None;
+            }
+        }
+
+        private async void View_Drop(object? sender, DragEventArgs e)
+        {
+            try
+            {
+                if (DataContext is MainViewModel vm)
+                {
+                    vm.IsDragOver = false;
+                }
+
+                if (e.DataTransfer.Contains(DataFormat.File))
+                {
+                    var files = e.DataTransfer.TryGetFiles()?.Select(f => f.Path.LocalPath).ToList();
+                    if (files != null && files.Count > 0 && DataContext is MainViewModel vm2)
+                    {
+                        await vm2.AddFilesAsync(files);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DropError] Failed to handle drop: {ex.Message}");
+            }
+        }
+
+        private void OnBackdropPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && vm.CanDismissModal)
+            {
+                vm.CloseModal();
+            }
+        }
+
+        private void InspectorPanel_PointerWheelChanged(object? sender, PointerWheelEventArgs e)
+        {
+            var sv = this.FindControl<ScrollViewer>("InspectorScrollViewer");
+            if (sv != null && sv.ScrollBarMaximum.Y > 0)
+            {
+                double delta = e.Delta.Y;
+                if (delta != 0)
+                {
+                    double newOffsetY = sv.Offset.Y - (delta * 44);
+                    newOffsetY = Math.Clamp(newOffsetY, 0, sv.ScrollBarMaximum.Y);
+                    sv.Offset = new Avalonia.Vector(sv.Offset.X, newOffsetY);
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private void MobileSidebar_PointerWheelChanged(object? sender, PointerWheelEventArgs e)
+        {
+            var sv = this.FindControl<ScrollViewer>("MobileSidebarScrollViewer");
+            if (sv != null && sv.ScrollBarMaximum.Y > 0)
+            {
+                double delta = e.Delta.Y;
+                if (delta != 0)
+                {
+                    double newOffsetY = sv.Offset.Y - (delta * 44);
+                    newOffsetY = Math.Clamp(newOffsetY, 0, sv.ScrollBarMaximum.Y);
+                    sv.Offset = new Avalonia.Vector(sv.Offset.X, newOffsetY);
+                    e.Handled = true;
+                }
+            }
+        }
+
+        private void DataGrid_DoubleTapped(object? sender, TappedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && vm.SelectedFile != null)
+            {
+                vm.OpenFileCommand.Execute(vm.SelectedFile);
+            }
+        }
+
+        private DispatcherTimer? _longPressTimer;
+        private Point _longPressStartPoint;
+        private FileItem? _longPressTargetItem;
+        private bool _isLongPressHandled;
+
+        private void StartLongPressTracking(FileItem item, PointerPressedEventArgs e)
+        {
+            _longPressTargetItem = item;
+            _longPressStartPoint = e.GetPosition(this);
+            _isLongPressHandled = false;
+
+            if (_longPressTimer == null)
+            {
+                _longPressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+                _longPressTimer.Tick += (s, ev) =>
+                {
+                    _longPressTimer.Stop();
+                    if (_longPressTargetItem != null && DataContext is MainViewModel vm)
+                    {
+                        _isLongPressHandled = true;
+                        vm.EnterMultiSelectMode(_longPressTargetItem);
+                    }
+                };
+            }
+            else
+            {
+                _longPressTimer.Stop();
+            }
+            _longPressTimer.Start();
+        }
+
+        private void StopLongPressTracking()
+        {
+            _longPressTimer?.Stop();
+            _longPressTargetItem = null;
+        }
+
+        private void GridItem_PointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (sender is Control control && control.DataContext is FileItem item && DataContext is MainViewModel vm)
+            {
+                if (vm.IsMultiSelectMode)
+                {
+                    vm.ToggleFileSelection(item);
+                    e.Handled = true;
+                    return;
+                }
+
+                vm.SelectedFile = item;
+                StartLongPressTracking(item, e);
+
+                if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS())
+                {
+                    return;
+                }
+
+                if (e.GetCurrentPoint(control).Properties.IsRightButtonPressed)
+                {
+                    var targetBorder = control as Border ?? control.FindAncestorOfType<Border>();
+                    if (targetBorder?.ContextMenu != null)
+                    {
+                        targetBorder.ContextMenu.Open(targetBorder);
+                        e.Handled = true;
+                    }
+                }
+            }
+        }
+
+        private void GridItem_DoubleTapped(object? sender, TappedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && vm.IsMultiSelectMode)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (sender is Control control && control.DataContext is FileItem item && DataContext is MainViewModel vm2)
+            {
+                vm2.SelectedFile = item;
+                vm2.OpenFileCommand.Execute(item);
+            }
+            else if (DataContext is MainViewModel vm3 && vm3.SelectedFile != null)
+            {
+                vm3.OpenFileCommand.Execute(vm3.SelectedFile);
+            }
+        }
+
+        private void MobileCard_PointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (sender is Control control && control.DataContext is FileItem item && DataContext is MainViewModel vm)
+            {
+                if (vm.IsMultiSelectMode)
+                {
+                    vm.ToggleFileSelection(item);
+                    e.Handled = true;
+                    return;
+                }
+
+                vm.SelectedFile = item;
+                StartLongPressTracking(item, e);
+            }
+        }
+
+        private void MobileCard_PointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (_longPressTimer?.IsEnabled == true)
+            {
+                var pos = e.GetPosition(this);
+                var diff = pos - _longPressStartPoint;
+                if (Math.Abs(diff.X) > 12 || Math.Abs(diff.Y) > 12)
+                {
+                    StopLongPressTracking();
+                }
+            }
+        }
+
+        private void MobileCard_PointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            StopLongPressTracking();
+            if (_isLongPressHandled)
+            {
+                _isLongPressHandled = false;
+                e.Handled = true;
+            }
+        }
+
+        private void MobileCard_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            StopLongPressTracking();
+        }
+
+        private void MobileCard_DoubleTapped(object? sender, TappedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm && vm.IsMultiSelectMode)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (sender is Control control && control.DataContext is FileItem item && DataContext is MainViewModel vm2)
+            {
+                vm2.SelectedFile = item;
+                vm2.OpenFileCommand.Execute(item);
+            }
+            else if (DataContext is MainViewModel vm3 && vm3.SelectedFile != null)
+            {
+                vm3.OpenFileCommand.Execute(vm3.SelectedFile);
+            }
+        }
+
+        private void OnMobileSidebarBackdropPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.IsMobileSidebarOpen = false;
+            }
+        }
+
+        private void OnMobileAddBackdropPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.IsMobileAddMenuOpen = false;
+            }
+        }
+
+        private void OnQueueFabBackdropPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.IsQueueFabMenuOpen = false;
+            }
+        }
+
+        private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (e.Source is Button || (e.Source is Avalonia.Visual visual && visual.FindAncestorOfType<Button>() != null))
+            {
+                return;
+            }
+
+            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            {
+                GetParentWindow()?.BeginMoveDrag(e);
+            }
+        }
+
+        private void TitleBar_DoubleTapped(object? sender, TappedEventArgs e)
+        {
+            if (e.Source is Button || (e.Source is Avalonia.Visual visual && visual.FindAncestorOfType<Button>() != null))
+            {
+                return;
+            }
+
+            var window = GetParentWindow();
+            if (window is MainWindow mainWindow)
+            {
+                mainWindow.ToggleMaximizeAnimated();
+            }
+            else if (window != null)
+            {
+                window.WindowState = window.WindowState == WindowState.Maximized
+                    ? WindowState.Normal
+                    : WindowState.Maximized;
+            }
+        }
+
+        private Window? GetParentWindow()
+        {
+            return TopLevel.GetTopLevel(this) as Window ?? VisualRoot as Window;
+        }
+
+        private void TitleBar_Minimize_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var window = GetParentWindow();
+            if (window is MainWindow mainWindow)
+            {
+                mainWindow.MinimizeAnimated();
+            }
+            else if (window != null)
+            {
+                window.WindowState = WindowState.Minimized;
+            }
+        }
+
+        private void TitleBar_Maximize_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var window = GetParentWindow();
+            if (window is MainWindow mainWindow)
+            {
+                mainWindow.ToggleMaximizeAnimated();
+            }
+            else if (window != null)
+            {
+                window.WindowState = window.WindowState == WindowState.Maximized
+                    ? WindowState.Normal
+                    : WindowState.Maximized;
+            }
+        }
+
+        private void TitleBar_Close_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var window = GetParentWindow();
+            if (window != null)
+            {
+                window.Close();
+            }
+        }
+    }
+}

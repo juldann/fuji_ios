@@ -1,0 +1,630 @@
+/*
+ * This file is part of Fujify.
+ *
+ * Copyright (C) 2024 Isidore Paulin contact@ipweb.dev
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Fujify.Services
+{
+    public class MetadataService : IMetadataService
+    {
+        private const string CommonArgs = "-CameraProfilesMake=\"FUJIFILM\" -CameraProfilesModel=\"X-T5\" -CameraProfilesUniqueCameraModel=\"Fujifilm X-T5\" -CameraProfilesCameraRawProfile=\"True\" -UniqueCameraModel=\"Fujifilm X-T5\"";
+        private readonly IProcessRunner _processRunner;
+
+        public MetadataService(IProcessRunner? processRunner = null)
+        {
+            _processRunner = processRunner ?? new ProcessRunner();
+        }
+
+        public string GetCameraMakeAndModel(string filePath)
+        {
+            // Direct in-memory reader (<1ms vs 300ms ExifTool process)
+            string? quickInfo = DngMetadataEditor.ReadCameraMakeAndModel(filePath)
+                ?? RawMetadataReader.TryGetCameraMakeAndModel(filePath);
+
+            if (!string.IsNullOrWhiteSpace(quickInfo))
+            {
+                return quickInfo;
+            }
+
+            var runner = FindExifToolRunner();
+            if (runner == null)
+            {
+                return "Unknown Camera";
+            }
+
+            try
+            {
+                string rawArgs = $"-Make -Model \"{filePath}\"";
+                string arguments = !string.IsNullOrEmpty(runner.Value.PrefixArgs)
+                    ? $"{runner.Value.PrefixArgs} {rawArgs}"
+                    : rawArgs;
+
+                var (exitCode, output, error) = _processRunner.Run(runner.Value.Command, arguments);
+
+                if (exitCode == 0)
+                {
+                    string cameraMake = ExtractExifValue(output, "Make");
+                    string cameraModel = ExtractExifValue(output, "Camera Model Name");
+
+                    // Shorten "NIKON CORPORATION" to "NIKON"
+                    if (cameraMake.Equals("NIKON CORPORATION", StringComparison.OrdinalIgnoreCase))
+                    {
+                        cameraMake = "NIKON";
+                    }
+
+                    return $"{cameraMake} {cameraModel}".Trim();
+                }
+
+                return !string.IsNullOrWhiteSpace(error) ? $"Error: {error}" : "Unknown Camera";
+            }
+            catch (Exception ex)
+            {
+                return $"Exception: {ex.Message}";
+            }
+        }
+
+        public int GetOrientation(string filePath)
+        {
+            int? direct = RawMetadataReader.TryGetOrientation(filePath);
+            if (direct.HasValue) return direct.Value;
+
+            var runner = FindExifToolRunner();
+            if (runner != null)
+            {
+                try
+                {
+                    string rawArgs = $"-Orientation# -n -s3 \"{filePath}\"";
+                    string arguments = !string.IsNullOrEmpty(runner.Value.PrefixArgs)
+                        ? $"{runner.Value.PrefixArgs} {rawArgs}"
+                        : rawArgs;
+
+                    var (exitCode, output, _) = _processRunner.Run(runner.Value.Command, arguments);
+                    if (exitCode == 0 && int.TryParse(output.Trim(), out int exifOrient) && exifOrient >= 1 && exifOrient <= 8)
+                    {
+                        return exifOrient;
+                    }
+                }
+                catch { }
+            }
+
+            return 1;
+        }
+
+        public ExifData? GetExifData(string filePath)
+        {
+            // 1. Fast managed in-memory EXIF reader (TIFF RAWs, RAF, CR3, JPEG) without external processes
+            var directExif = RawMetadataReader.TryGetExifData(filePath);
+            var runner = FindExifToolRunner();
+
+            // If we have managed EXIF data and either no external exiftool runner is present, or lens is already resolved, return immediately
+            if (directExif != null && (runner == null || !string.IsNullOrWhiteSpace(directExif.Lens)))
+            {
+                return directExif;
+            }
+
+            if (runner == null) return directExif;
+
+            try
+            {
+                string rawArgs = $"-LensModel -Lens -FNumber -Aperture -ExposureTime -ShutterSpeed -ISO -FocalLength -DateTimeOriginal -CreateDate -Orientation \"{filePath}\"";
+                string arguments = !string.IsNullOrEmpty(runner.Value.PrefixArgs)
+                    ? $"{runner.Value.PrefixArgs} {rawArgs}"
+                    : rawArgs;
+
+                var (exitCode, output, error) = _processRunner.Run(runner.Value.Command, arguments);
+                if (exitCode == 0 && !string.IsNullOrWhiteSpace(output))
+                {
+                    string lens = ExtractExifValue(output, "Lens Model", "Lens", "Lens Type", "Lens Spec");
+                    string aperture = ExtractExifValue(output, "F Number", "Aperture Value", "Aperture");
+                    if (aperture.StartsWith("f/", StringComparison.OrdinalIgnoreCase) || aperture.StartsWith("ƒ/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        aperture = aperture.Substring(2).Trim();
+                    }
+                    string shutter = ExtractExifValue(output, "Exposure Time", "Shutter Speed Value", "Shutter Speed");
+                    string iso = ExtractExifValue(output, "ISO");
+                    if (iso.StartsWith("ISO", StringComparison.OrdinalIgnoreCase))
+                    {
+                        iso = iso.Substring(3).Trim();
+                    }
+                    string focal = ExtractExifValue(output, "Focal Length");
+                    string dt = ExtractExifValue(output, "Date/Time Original", "Create Date", "Date Time Original");
+                    string? orientation = ExtractExifValue(output, "Orientation");
+                    if (orientation.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int? direct = RawMetadataReader.TryGetOrientation(filePath);
+                        orientation = direct switch
+                        {
+                            1 => "Horizontal (normal)",
+                            2 => "Mirror horizontal",
+                            3 => "Rotate 180",
+                            4 => "Mirror vertical",
+                            5 => "Mirror horizontal and rotate 270 CW",
+                            6 => "Rotate 90 CW",
+                            7 => "Mirror horizontal and rotate 90 CW",
+                            8 => "Rotate 270 CW",
+                            _ => null
+                        };
+                    }
+
+                    string? resolvedLens = !lens.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? lens : directExif?.Lens;
+                    string? resolvedAperture = !aperture.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? aperture : directExif?.Aperture;
+                    string? resolvedShutter = !shutter.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? shutter : directExif?.ShutterSpeed;
+                    string? resolvedIso = !iso.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? iso : directExif?.Iso;
+                    string? resolvedFocal = !focal.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? focal : directExif?.FocalLength;
+                    string? resolvedDt = !dt.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? dt : directExif?.DateTimeOriginal;
+                    string? resolvedOrientation = (orientation != null && !orientation.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+                        ? orientation
+                        : directExif?.Orientation;
+
+                    return new ExifData(
+                        resolvedLens,
+                        resolvedAperture,
+                        resolvedShutter,
+                        resolvedIso,
+                        resolvedFocal,
+                        resolvedDt,
+                        resolvedOrientation
+                    );
+                }
+            }
+            catch { }
+            return directExif;
+        }
+
+        public MetadataResult InjectFujifilmMetadata(string dngFilePath, string? outputFolder, bool createBackup, bool isOriginallyDng, string? customOutputFilePath = null, string targetUniqueCameraModel = "Fujifilm X-T5", string? sourceRawFilePath = null)
+        {
+            // 1. On Linux: Prefer system-installed ExifTool dependency first to leverage the latest installed version
+            if (OperatingSystem.IsLinux())
+            {
+                var runner = FindExifToolRunner();
+                if (runner != null)
+                {
+                    var exifToolResult = InjectMetadataWithExifTool(runner.Value, dngFilePath, outputFolder, createBackup, isOriginallyDng, customOutputFilePath);
+                    if (exifToolResult.Success)
+                    {
+                        return exifToolResult;
+                    }
+                    // If ExifTool failed, continue to fallback to integrated code
+                }
+            }
+
+            // 2. Direct in-memory TIFF/DNG IFD0 rewriting (<2ms, 0 external processes)
+            var nativeResult = DngMetadataEditor.InjectFujifilmMetadata(
+                dngFilePath,
+                outputFolder,
+                createBackup,
+                isOriginallyDng,
+                customOutputFilePath,
+                targetUniqueCameraModel: targetUniqueCameraModel,
+                sourceRawFilePath: sourceRawFilePath);
+
+            if (nativeResult.Success)
+            {
+                return nativeResult;
+            }
+
+            // 3. Fallback to ExifTool CLI on non-Linux if native editor encountered an issue
+            if (!OperatingSystem.IsLinux())
+            {
+                var runner = FindExifToolRunner();
+                if (runner != null)
+                {
+                    return InjectMetadataWithExifTool(runner.Value, dngFilePath, outputFolder, createBackup, isOriginallyDng, customOutputFilePath);
+                }
+            }
+
+            return nativeResult;
+        }
+
+        public async Task<MetadataResult> InjectFujifilmMetadataAsync(string dngFilePath, string? outputFolder, bool createBackup, bool isOriginallyDng, string? customOutputFilePath = null, string targetUniqueCameraModel = "Fujifilm X-T5", string? sourceRawFilePath = null, CancellationToken cancellationToken = default)
+        {
+            // 1. On Linux: Prefer system-installed ExifTool dependency first to leverage the latest installed version
+            if (OperatingSystem.IsLinux())
+            {
+                var runner = FindExifToolRunner();
+                if (runner != null)
+                {
+                    var exifToolResult = await InjectMetadataWithExifToolAsync(runner.Value, dngFilePath, outputFolder, createBackup, isOriginallyDng, customOutputFilePath, cancellationToken);
+                    if (exifToolResult.Success)
+                    {
+                        return exifToolResult;
+                    }
+                    // If ExifTool failed, continue to fallback to integrated code
+                }
+            }
+
+            // 2. Direct in-memory TIFF/DNG IFD0 rewriting (<2ms, 0 external processes)
+            var nativeResult = await DngMetadataEditor.InjectFujifilmMetadataAsync(
+                dngFilePath,
+                outputFolder,
+                createBackup,
+                isOriginallyDng,
+                customOutputFilePath,
+                targetUniqueCameraModel: targetUniqueCameraModel,
+                sourceRawFilePath: sourceRawFilePath,
+                cancellationToken: cancellationToken);
+
+            if (nativeResult.Success)
+            {
+                return nativeResult;
+            }
+
+            // 3. Fallback to ExifTool CLI on non-Linux if native editor encountered an issue
+            if (!OperatingSystem.IsLinux())
+            {
+                var runner = FindExifToolRunner();
+                if (runner != null)
+                {
+                    return await InjectMetadataWithExifToolAsync(runner.Value, dngFilePath, outputFolder, createBackup, isOriginallyDng, customOutputFilePath, cancellationToken);
+                }
+            }
+
+            return nativeResult;
+        }
+
+        private MetadataResult InjectMetadataWithExifTool(
+            (string Command, string? PrefixArgs) runner,
+            string dngFilePath,
+            string? outputFolder,
+            bool createBackup,
+            bool isOriginallyDng,
+            string? customOutputFilePath)
+        {
+            string baseArguments = CommonArgs;
+            bool useOutputPath = !string.IsNullOrEmpty(outputFolder) || !string.IsNullOrEmpty(customOutputFilePath);
+            string? outputFilePath = null;
+
+            if (useOutputPath)
+            {
+                outputFilePath = !string.IsNullOrEmpty(customOutputFilePath)
+                    ? customOutputFilePath
+                    : Path.Combine(outputFolder!, Path.GetFileNameWithoutExtension(dngFilePath) + ".dng");
+
+                if (File.Exists(outputFilePath))
+                {
+                    try
+                    {
+                        File.Delete(outputFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new MetadataResult(false, $"Failed to delete existing file in output folder: {ex.Message}");
+                    }
+                }
+
+                baseArguments += $" -o \"{outputFilePath}\"";
+            }
+            else
+            {
+                if (isOriginallyDng)
+                {
+                    if (!createBackup)
+                    {
+                        baseArguments += " -overwrite_original_in_place";
+                    }
+                }
+                else
+                {
+                    baseArguments += " -overwrite_original";
+                }
+            }
+
+            string rawArgs = $"{baseArguments} \"{dngFilePath}\"";
+            string arguments = !string.IsNullOrEmpty(runner.PrefixArgs)
+                ? $"{runner.PrefixArgs} {rawArgs}"
+                : rawArgs;
+
+            try
+            {
+                var (exitCode, output, error) = _processRunner.Run(runner.Command, arguments);
+
+                if (exitCode == 0)
+                {
+                    if (output.Contains("image files updated") || output.Contains("image files created"))
+                    {
+                        if (useOutputPath && !string.IsNullOrEmpty(outputFilePath))
+                        {
+                            string? sidecar = DngMetadataEditor.FindSidecarXmp(dngFilePath);
+                            if (!string.IsNullOrEmpty(sidecar) && File.Exists(sidecar))
+                            {
+                                try
+                                {
+                                    string? targetSidecar = Path.ChangeExtension(outputFilePath, ".xmp");
+                                    if (!string.IsNullOrEmpty(targetSidecar) && !string.Equals(Path.GetFullPath(sidecar), Path.GetFullPath(targetSidecar), StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        File.Copy(sidecar, targetSidecar, overwrite: true);
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                        CleanupTemporaryFiles(dngFilePath, useOutputPath, createBackup, isOriginallyDng);
+                        return new MetadataResult(true, null);
+                    }
+                    else
+                    {
+                        return new MetadataResult(false, "Error writing the metadata");
+                    }
+                }
+
+                string errorMsg = !string.IsNullOrWhiteSpace(error) ? error : output;
+                return new MetadataResult(false, $"Error: {errorMsg}");
+            }
+            catch (Exception ex)
+            {
+                return new MetadataResult(false, $"Exception: {ex.Message}");
+            }
+        }
+
+        private async Task<MetadataResult> InjectMetadataWithExifToolAsync(
+            (string Command, string? PrefixArgs) runner,
+            string dngFilePath,
+            string? outputFolder,
+            bool createBackup,
+            bool isOriginallyDng,
+            string? customOutputFilePath,
+            CancellationToken cancellationToken)
+        {
+            string baseArguments = CommonArgs;
+            bool useOutputPath = !string.IsNullOrEmpty(outputFolder) || !string.IsNullOrEmpty(customOutputFilePath);
+            string? outputFilePath = null;
+
+            if (useOutputPath)
+            {
+                outputFilePath = !string.IsNullOrEmpty(customOutputFilePath)
+                    ? customOutputFilePath
+                    : Path.Combine(outputFolder!, Path.GetFileNameWithoutExtension(dngFilePath) + ".dng");
+
+                if (File.Exists(outputFilePath))
+                {
+                    try
+                    {
+                        File.Delete(outputFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new MetadataResult(false, $"Failed to delete existing file in output folder: {ex.Message}");
+                    }
+                }
+
+                baseArguments += $" -o \"{outputFilePath}\"";
+            }
+            else
+            {
+                if (isOriginallyDng)
+                {
+                    if (!createBackup)
+                    {
+                        baseArguments += " -overwrite_original_in_place";
+                    }
+                }
+                else
+                {
+                    baseArguments += " -overwrite_original";
+                }
+            }
+
+            string rawArgs = $"{baseArguments} \"{dngFilePath}\"";
+            string arguments = !string.IsNullOrEmpty(runner.PrefixArgs)
+                ? $"{runner.PrefixArgs} {rawArgs}"
+                : rawArgs;
+
+            try
+            {
+                var (exitCode, output, error) = await _processRunner.RunAsync(runner.Command, arguments, cancellationToken);
+
+                if (exitCode == 0)
+                {
+                    if (output.Contains("image files updated") || output.Contains("image files created"))
+                    {
+                        if (useOutputPath && !string.IsNullOrEmpty(outputFilePath))
+                        {
+                            string? sidecar = DngMetadataEditor.FindSidecarXmp(dngFilePath);
+                            if (!string.IsNullOrEmpty(sidecar) && File.Exists(sidecar))
+                            {
+                                try
+                                {
+                                    string? targetSidecar = Path.ChangeExtension(outputFilePath, ".xmp");
+                                    if (!string.IsNullOrEmpty(targetSidecar) && !string.Equals(Path.GetFullPath(sidecar), Path.GetFullPath(targetSidecar), StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        File.Copy(sidecar, targetSidecar, overwrite: true);
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                        CleanupTemporaryFiles(dngFilePath, useOutputPath, createBackup, isOriginallyDng);
+                        return new MetadataResult(true, null);
+                    }
+                    else
+                    {
+                        return new MetadataResult(false, "Error writing the metadata");
+                    }
+                }
+
+                string errorMsg = !string.IsNullOrWhiteSpace(error) ? error : output;
+                return new MetadataResult(false, $"Error: {errorMsg}");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return new MetadataResult(false, $"Exception: {ex.Message}");
+            }
+        }
+
+        public void CleanupTemporaryFiles(string dngFilePath, bool useOutputPath, bool createBackup, bool isOriginallyDng)
+        {
+            try
+            {
+                if (useOutputPath)
+                {
+                    // Only delete intermediate DNG if it was converted from a non-DNG RAW.
+                    // NEVER delete the user's original source DNG!
+                    if (!isOriginallyDng && File.Exists(dngFilePath))
+                    {
+                        File.Delete(dngFilePath);
+                    }
+                }
+                else
+                {
+                    string temporaryFilePath = Path.Combine(Path.GetDirectoryName(dngFilePath) ?? string.Empty, $"{Path.GetFileNameWithoutExtension(dngFilePath)}ORIG.DNG");
+                    if (!File.Exists(temporaryFilePath))
+                    {
+                        temporaryFilePath = Path.ChangeExtension(dngFilePath, ".dng_original");
+                    }
+
+                    if (isOriginallyDng && createBackup)
+                    {
+                        // Keep .dng_original file if it's an original DNG and backup is requested
+                        return;
+                    }
+
+                    if (File.Exists(temporaryFilePath))
+                    {
+                        File.Delete(temporaryFilePath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to delete temporary files: {ex.Message}");
+            }
+        }
+
+        public static (string Command, string? PrefixArgs)? FindExifToolRunner()
+        {
+            string binaryName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "exiftool.exe" : "exiftool";
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+            // On Linux / macOS: check standard system paths and system PATH first so the latest version is used
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                string[] standardPaths =
+                [
+                    "/usr/bin/exiftool",
+                    "/usr/local/bin/exiftool",
+                    "/opt/homebrew/bin/exiftool",
+                    "/snap/bin/exiftool",
+                    "/usr/pkg/bin/exiftool"
+                ];
+                foreach (var path in standardPaths)
+                {
+                    if (File.Exists(path)) return (path, null);
+                }
+
+                var pathEnv = Environment.GetEnvironmentVariable("PATH");
+                if (!string.IsNullOrEmpty(pathEnv))
+                {
+                    foreach (var dir in pathEnv.Split(':'))
+                    {
+                        try
+                        {
+                            string fullPath = Path.Combine(dir.Trim(), binaryName);
+                            if (File.Exists(fullPath)) return (fullPath, null);
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            // Check arch-specific dirs and local libs directory
+            var candidates = new System.Collections.Generic.List<string>();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+                {
+                    candidates.Add(Path.Combine(baseDir, "libs", "win-arm64", binaryName));
+                }
+                candidates.Add(Path.Combine(baseDir, "libs", "win-x64", binaryName));
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+                {
+                    candidates.Add(Path.Combine(baseDir, "libs", "osx-arm64", binaryName));
+                }
+                candidates.Add(Path.Combine(baseDir, "libs", "osx-x64", binaryName));
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                candidates.Add(Path.Combine(baseDir, "libs", "linux-x64", binaryName));
+            }
+
+            candidates.Add(Path.Combine(baseDir, "libs", binaryName));
+            candidates.Add(Path.Combine(baseDir, binaryName));
+
+            foreach (var candidate in candidates)
+            {
+                if (File.Exists(candidate)) return (candidate, (string?)null);
+            }
+
+            // On Windows: check system PATH as fallback
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                var pathEnv = Environment.GetEnvironmentVariable("PATH");
+                if (!string.IsNullOrEmpty(pathEnv))
+                {
+                    foreach (var dir in pathEnv.Split(';'))
+                    {
+                        try
+                        {
+                            string fullPath = Path.Combine(dir.Trim(), binaryName);
+                            if (File.Exists(fullPath)) return (fullPath, null);
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        public static string? GetExifToolPath()
+        {
+            var runner = FindExifToolRunner();
+            return runner?.Command;
+        }
+
+        private static string ExtractExifValue(string exifOutput, params string[] tagNames)
+        {
+            foreach (var tagName in tagNames)
+            {
+                var match = Regex.Match(exifOutput, $@"(?:^|\n)\s*{Regex.Escape(tagName)}\s*:\s*(.+)", RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    var val = match.Groups[1].Value.Trim();
+                    if (!string.IsNullOrEmpty(val) && !val.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return val;
+                    }
+                }
+            }
+            return "Unknown";
+        }
+    }
+}

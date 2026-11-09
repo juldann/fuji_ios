@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <ApplicationTitle>FujiStudio</ApplicationTitle>
+    <ApplicationId>com.juldann.fujistudio</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableCodeSigning>false</EnableCodeSigning>
+    <CodesignKey>-</CodesignKey>
+    <ValidateXcodeVersion>false</ValidateXcodeVersion>
+    <_SuppressXcodeRequirementCheck>true</_SuppressXcodeRequirementCheck>
+    <Registrar>dynamic</Registrar>
+    <DynamicRegistrationSupported>true</DynamicRegistrationSupported>
+    <MtouchEnableDsym>false</MtouchEnableDsym>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.iOS" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InterfaceDefinition Include="Resources\LaunchScreen.storyboard" />
+    <BundleResource Include="Resources\**\*" Exclude="Resources\LaunchScreen.storyboard" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('Frameworks')">
+    <BundleResource Include="Frameworks\**\*.dylib" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Fujify\Fujify.csproj" Properties="OutputType=Library;TargetFramework=net10.0" />
+  </ItemGroup>
+</Project>

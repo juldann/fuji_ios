@@ -1,0 +1,757 @@
+/*
+ * This file is part of Fujify.
+ *
+ * Copyright (C) 2024 Isidore Paulin contact@ipweb.dev
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Fujify.Models;
+using Fujify.ViewModels;
+using Fujify.Views;
+
+namespace Fujify.Services
+{
+    public class DialogService : IDialogService
+    {
+        private readonly ISettingsService _settingsService;
+        private readonly ILicenseService? _licenseService;
+
+        public static Func<string>? PlatformStagingDirectoryResolver { get; set; }
+        public static Func<string>? PlatformDefaultOutputDirectoryResolver { get; set; }
+        public static Func<Uri, string?>? PlatformFolderResolver { get; set; }
+        public static Action? PlatformEnsurePermissionsCallback { get; set; }
+
+        public static string ResolveAndroidStoragePath(Uri uri)
+        {
+            if (uri == null) return string.Empty;
+            return ResolveAndroidStoragePathString(uri.ToString());
+        }
+
+        public static string ResolveAndroidStoragePathString(string pathOrUri)
+        {
+            if (string.IsNullOrWhiteSpace(pathOrUri)) return string.Empty;
+
+            string unescaped = Uri.UnescapeDataString(pathOrUri).Trim();
+
+            // 1. Primary external storage check (e.g. primary:Folder or /tree/primary:Folder)
+            int primaryIdx = unescaped.IndexOf("primary:", StringComparison.OrdinalIgnoreCase);
+            if (primaryIdx >= 0)
+            {
+                string relativePath = unescaped.Substring(primaryIdx + "primary:".Length).TrimStart('/', '\\').Replace('\\', '/');
+                string baseDir = "/storage/emulated/0";
+                return string.IsNullOrEmpty(relativePath) ? baseDir : $"{baseDir}/{relativePath}";
+            }
+
+            // 2. Secondary volume / SD card (e.g. /tree/1234-5678:Folder)
+            int treeIdx = unescaped.IndexOf("/tree/", StringComparison.OrdinalIgnoreCase);
+            if (treeIdx < 0) treeIdx = unescaped.IndexOf("/document/", StringComparison.OrdinalIgnoreCase);
+            if (treeIdx >= 0)
+            {
+                int prefixLen = unescaped.IndexOf("/tree/", StringComparison.OrdinalIgnoreCase) >= 0 ? "/tree/".Length : "/document/".Length;
+                string sub = unescaped.Substring(treeIdx + prefixLen);
+                int colonIdx = sub.IndexOf(':');
+                if (colonIdx > 0)
+                {
+                    string volume = sub.Substring(0, colonIdx);
+                    string rel = sub.Substring(colonIdx + 1).TrimStart('/', '\\').Replace('\\', '/');
+                    if (volume.Equals("primary", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return string.IsNullOrEmpty(rel) ? "/storage/emulated/0" : $"/storage/emulated/0/{rel}";
+                    }
+                    string baseVol = $"/storage/{volume}";
+                    return string.IsNullOrEmpty(rel) ? baseVol : $"{baseVol}/{rel}";
+                }
+            }
+
+            // 3. Raw /tree/ path without colon
+            if (unescaped.StartsWith("/tree/", StringComparison.OrdinalIgnoreCase))
+            {
+                string stripped = unescaped.Substring("/tree/".Length);
+                if (stripped.StartsWith("primary:", StringComparison.OrdinalIgnoreCase))
+                {
+                    string rel = stripped.Substring("primary:".Length).TrimStart('/', '\\').Replace('\\', '/');
+                    return string.IsNullOrEmpty(rel) ? "/storage/emulated/0" : $"/storage/emulated/0/{rel}";
+                }
+            }
+
+            return pathOrUri;
+        }
+
+        public static string GetStagingDirectory()
+        {
+            if (PlatformStagingDirectoryResolver != null)
+            {
+                try
+                {
+                    string dir = PlatformStagingDirectoryResolver();
+                    if (!string.IsNullOrWhiteSpace(dir))
+                    {
+                        string staging = Path.Combine(dir, "Fujifier_Staging");
+                        Directory.CreateDirectory(staging);
+                        return staging;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Fujifier] Error resolving platform staging dir: {ex.Message}");
+                }
+            }
+
+            try
+            {
+                string baseDir = OperatingSystem.IsIOS()
+                    ? Path.GetTempPath()
+                    : OperatingSystem.IsAndroid()
+                        ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+                        : Path.GetTempPath();
+
+                if (string.IsNullOrWhiteSpace(baseDir) || !Directory.Exists(baseDir))
+                {
+                    baseDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                }
+
+                string stagingDir = Path.Combine(baseDir, "Fujifier_Staging");
+                Directory.CreateDirectory(stagingDir);
+                return stagingDir;
+            }
+            catch
+            {
+                string fallback = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Fujifier_Staging");
+                Directory.CreateDirectory(fallback);
+                return fallback;
+            }
+        }
+
+        public static string DetectRawExtension(string filePath)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (fs.Length < 16) return ".raw";
+                byte[] header = new byte[16];
+                int read = fs.Read(header, 0, 16);
+                if (read < 16) return ".raw";
+
+                // Fujifilm RAF: starts with FUJIFILM
+                if (header[0] == 0x46 && header[1] == 0x55 && header[2] == 0x4A && header[3] == 0x49)
+                    return ".raf";
+
+                // TIFF based (Sony ARW, Canon CR2, Nikon NEF, Adobe DNG, etc.)
+                if ((header[0] == 0x49 && header[1] == 0x49 && header[2] == 0x2A && header[3] == 0x00) ||
+                    (header[0] == 0x4D && header[1] == 0x4D && header[2] == 0x00 && header[3] == 0x2A))
+                {
+                    string? camera = RawMetadataReader.TryGetCameraMakeAndModel(filePath);
+                    if (!string.IsNullOrEmpty(camera))
+                    {
+                        if (camera.Contains("SONY", StringComparison.OrdinalIgnoreCase)) return ".arw";
+                        if (camera.Contains("CANON", StringComparison.OrdinalIgnoreCase)) return ".cr2";
+                        if (camera.Contains("NIKON", StringComparison.OrdinalIgnoreCase)) return ".nef";
+                        if (camera.Contains("FUJIFILM", StringComparison.OrdinalIgnoreCase)) return ".raf";
+                        if (camera.Contains("LEICA", StringComparison.OrdinalIgnoreCase)) return ".dng";
+                        if (camera.Contains("OLYMPUS", StringComparison.OrdinalIgnoreCase) || camera.Contains("OM Digital", StringComparison.OrdinalIgnoreCase)) return ".orf";
+                        if (camera.Contains("PANASONIC", StringComparison.OrdinalIgnoreCase)) return ".rw2";
+                    }
+                    return ".dng";
+                }
+
+                // Canon CR3 (ISO BMFF / ftypcrx)
+                if (header.Length >= 8 && header[4] == 0x66 && header[5] == 0x74 && header[6] == 0x79 && header[7] == 0x70)
+                    return ".cr3";
+            }
+            catch { }
+            return ".arw";
+        }
+
+        public DialogService(ISettingsService? settingsService = null, ILicenseService? licenseService = null)
+        {
+            _settingsService = settingsService ?? new SettingsService();
+            _licenseService = licenseService ?? LicenseService.Instance;
+        }
+
+        private static bool IsMobileOrSingleView =>
+            Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime
+            || (MainViewModel.Instance != null && MainViewModel.Instance.IsPhoneLayout);
+
+        private static IStorageProvider? GetStorageProvider(Window? owner)
+        {
+            if (owner != null)
+            {
+                return owner.StorageProvider;
+            }
+
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                return desktop.MainWindow?.StorageProvider;
+            }
+
+            if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime singleView && singleView.MainView != null)
+            {
+                return TopLevel.GetTopLevel(singleView.MainView)?.StorageProvider;
+            }
+
+            return null;
+        }
+
+        public async Task ShowMessageAsync(Window? owner, string title, string message, bool isSuccess = true)
+        {
+            if (Application.Current == null) return;
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => ShowMessageAsync(owner, title, message, isSuccess));
+                return;
+            }
+
+            if (IsMobileOrSingleView || (owner == null && (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow == null))
+            {
+                MainViewModel.Instance?.ShowMessageModal(title, message, isSuccess);
+                return;
+            }
+
+            var dialog = new MessageDialog(title, message, isSuccess);
+            var targetOwner = owner ?? (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+            if (targetOwner != null)
+            {
+                if (targetOwner.WindowState == WindowState.Minimized)
+                {
+                    targetOwner.WindowState = WindowState.Normal;
+                }
+                targetOwner.Activate();
+                await dialog.ShowDialog(targetOwner);
+            }
+            else
+            {
+                dialog.Show();
+            }
+        }
+
+        public async Task<bool> ShowConfirmationAsync(Window? owner, string title, string message, string? confirmText = null, string? cancelText = null)
+        {
+            if (Application.Current == null) return true;
+
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                return await Dispatcher.UIThread.InvokeAsync(() => ShowConfirmationAsync(owner, title, message, confirmText, cancelText));
+            }
+
+            var desktopLifetime = Application.Current.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+            var singleViewLifetime = Application.Current.ApplicationLifetime as ISingleViewApplicationLifetime;
+            var targetOwner = owner ?? desktopLifetime?.MainWindow;
+
+            if (targetOwner == null && singleViewLifetime?.MainView == null)
+            {
+                return true;
+            }
+
+            if (IsMobileOrSingleView || targetOwner == null)
+            {
+                if (MainViewModel.Instance != null)
+                {
+                    return await MainViewModel.Instance.ShowConfirmationModalAsync(title, message, confirmText, cancelText);
+                }
+                return false;
+            }
+
+            var dialog = new ConfirmationDialog(title, message, confirmText, cancelText);
+            if (targetOwner != null)
+            {
+                if (targetOwner.WindowState == WindowState.Minimized)
+                {
+                    targetOwner.WindowState = WindowState.Normal;
+                }
+                targetOwner.Activate();
+                return await dialog.ShowDialog<bool>(targetOwner);
+            }
+            else
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                dialog.Closed += (s, e) => tcs.TrySetResult(dialog.Result);
+                dialog.Show();
+                return await tcs.Task;
+            }
+        }
+
+        private readonly SemaphoreSlim _conflictDialogLock = new(1, 1);
+
+        public async Task<FileConflictResolution> PromptFileConflictAsync(Window? owner, string destinationFilePath)
+        {
+            if (Application.Current == null) return new FileConflictResolution(ConflictChoice.Skip, false);
+
+            var desktopLifetime = Application.Current.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+            var singleViewLifetime = Application.Current.ApplicationLifetime as ISingleViewApplicationLifetime;
+            var targetOwner = owner ?? desktopLifetime?.MainWindow;
+
+            // In headless/test environments with no visible window or view, skip prompt to prevent deadlocks
+            if (targetOwner == null && singleViewLifetime?.MainView == null)
+            {
+                return new FileConflictResolution(ConflictChoice.Skip, false);
+            }
+
+            await _conflictDialogLock.WaitAsync();
+            try
+            {
+                if (!Dispatcher.UIThread.CheckAccess())
+                {
+                    return await Dispatcher.UIThread.InvokeAsync(() => PromptFileConflictCoreAsync(owner, destinationFilePath));
+                }
+
+                return await PromptFileConflictCoreAsync(owner, destinationFilePath);
+            }
+            finally
+            {
+                _conflictDialogLock.Release();
+            }
+        }
+
+        private async Task<FileConflictResolution> PromptFileConflictCoreAsync(Window? owner, string destinationFilePath)
+        {
+            var desktopLifetime = Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+            var singleViewLifetime = Application.Current?.ApplicationLifetime as ISingleViewApplicationLifetime;
+            var targetOwner = owner ?? desktopLifetime?.MainWindow;
+
+            if (targetOwner == null && singleViewLifetime?.MainView == null)
+            {
+                return new FileConflictResolution(ConflictChoice.Skip, false);
+            }
+
+            if (IsMobileOrSingleView || targetOwner == null)
+            {
+                if (MainViewModel.Instance != null)
+                {
+                    return await MainViewModel.Instance.ShowConflictModalAsync(destinationFilePath);
+                }
+                return new FileConflictResolution(ConflictChoice.Skip, false);
+            }
+
+            var vm = new FileConflictDialogViewModel(destinationFilePath);
+            var dialog = new FileConflictDialog(vm);
+
+            if (targetOwner != null)
+            {
+                if (targetOwner.WindowState == WindowState.Minimized)
+                {
+                    targetOwner.WindowState = WindowState.Normal;
+                }
+                targetOwner.Activate();
+                await dialog.ShowDialog(targetOwner);
+            }
+            else
+            {
+                var tcs = new TaskCompletionSource<FileConflictResolution>();
+                vm.CloseAction = res =>
+                {
+                    dialog.Close(res);
+                    tcs.TrySetResult(res);
+                };
+                dialog.Show();
+                return await tcs.Task;
+            }
+
+            return dialog.Result ?? new FileConflictResolution(ConflictChoice.Skip, false);
+        }
+
+        public async Task<IReadOnlyList<string>> ShowOpenFileDialogAsync(Window? owner, string title, bool allowMultiple = true)
+        {
+            if (Application.Current == null) return Array.Empty<string>();
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                return await Dispatcher.UIThread.InvokeAsync(() => ShowOpenFileDialogAsync(owner, title, allowMultiple));
+            }
+
+            try
+            {
+                var storage = GetStorageProvider(owner);
+                if (storage == null) return Array.Empty<string>();
+
+                var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = title,
+                    AllowMultiple = allowMultiple,
+                    FileTypeFilter = new List<FilePickerFileType>
+                    {
+                        new("All Supported RAW & Photos")
+                        {
+                            Patterns = new[] { "*.dng", "*.cr2", "*.cr3", "*.crw", "*.erf", "*.raf", "*.3fr", "*.kdc", "*.dcs", "*.dcr", "*.iiq", "*.mos", "*.mef", "*.mrw", "*.nef", "*.nrw", "*.orf", "*.rw2", "*.pef", "*.srw", "*.arw", "*.srf", "*.sr2", "*.*" },
+                            MimeTypes = new[] { "image/*", "application/octet-stream", "*/*" }
+                        },
+                        new("All Files (*.*)") { Patterns = new[] { "*.*" }, MimeTypes = new[] { "*/*" } }
+                    }
+                });
+
+                if (files == null || files.Count == 0) return Array.Empty<string>();
+
+                var resultPaths = new List<string>();
+                string stagingDir = GetStagingDirectory();
+
+                foreach (var file in files)
+                {
+                    if (file == null) continue;
+
+                    // 1. Direct POSIX access check
+                    try
+                    {
+                        string? localPath = file.TryGetLocalPath();
+                        if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
+                        {
+                            using var testStream = File.OpenRead(localPath);
+                            if (testStream.Length > 0)
+                            {
+                                resultPaths.Add(localPath);
+                                continue;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Direct read inaccessible on this platform (e.g. Scoped Storage on Android 11+) -> stream via SAF
+                    }
+
+                    // 2. Stream from SAF or document provider into private app staging directory
+                    try
+                    {
+                        string fileName = file.Name;
+                        if (string.IsNullOrWhiteSpace(fileName))
+                        {
+                            try { fileName = Path.GetFileName(file.Path.LocalPath); } catch { }
+                        }
+                        if (string.IsNullOrWhiteSpace(fileName))
+                        {
+                            fileName = $"import_{Guid.NewGuid():N}.raw";
+                        }
+
+                        // Sanitize filename to avoid any path traversal or invalid characters
+                        fileName = Path.GetFileName(fileName);
+                        foreach (char c in Path.GetInvalidFileNameChars())
+                        {
+                            fileName = fileName.Replace(c, '_');
+                        }
+
+                        string destFilePath = Path.Combine(stagingDir, fileName);
+
+                        await using (var sourceStream = await file.OpenReadAsync())
+                        await using (var destStream = File.Create(destFilePath))
+                        {
+                            await sourceStream.CopyToAsync(destStream);
+                        }
+
+                        // If file has no extension (e.g. Android SAF content URI gave a name without extension),
+                        // inspect the header bytes to detect RAW format and append correct extension:
+                        if (string.IsNullOrEmpty(Path.GetExtension(destFilePath)))
+                        {
+                            string detectedExt = DetectRawExtension(destFilePath);
+                            if (!string.IsNullOrEmpty(detectedExt))
+                            {
+                                string newDestPath = Path.ChangeExtension(destFilePath, detectedExt);
+                                if (File.Exists(newDestPath)) File.Delete(newDestPath);
+                                File.Move(destFilePath, newDestPath);
+                                destFilePath = newDestPath;
+                            }
+                        }
+
+                        resultPaths.Add(destFilePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Fujify] Failed to stream storage file: {ex.Message}");
+                    }
+                }
+
+                return resultPaths;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Fujify] Error in ShowOpenFileDialogAsync: {ex}");
+                return Array.Empty<string>();
+            }
+        }
+
+        public async Task<IReadOnlyList<string>> ShowOpenFolderFilesDialogAsync(
+            Window? owner,
+            string title,
+            IReadOnlyCollection<string>? supportedExtensions)
+        {
+            if (Application.Current == null) return Array.Empty<string>();
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                return await Dispatcher.UIThread.InvokeAsync(() => ShowOpenFolderFilesDialogAsync(owner, title, supportedExtensions));
+            }
+
+            PlatformEnsurePermissionsCallback?.Invoke();
+
+            var storage = GetStorageProvider(owner);
+            if (storage == null) return Array.Empty<string>();
+
+            var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false
+            });
+
+            if (folders == null || folders.Count == 0) return Array.Empty<string>();
+            var folder = folders[0];
+            if (folder == null) return Array.Empty<string>();
+
+            // On desktop platforms (Windows, macOS, Linux): if local path exists and is directly readable, enumerate directly
+            if (!OperatingSystem.IsAndroid() && !OperatingSystem.IsIOS())
+            {
+                string? localPath = folder.TryGetLocalPath();
+                if (!string.IsNullOrEmpty(localPath) && Directory.Exists(localPath))
+                {
+                    try
+                    {
+                        var files = Directory.EnumerateFiles(localPath, "*.*", SearchOption.AllDirectories)
+                            .Where(f => supportedExtensions == null || supportedExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase))
+                            .ToList();
+                        return files;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Fujify] Direct directory enumeration failed: {ex.Message}");
+                    }
+                }
+            }
+
+            // On mobile (Android / iOS) or when direct POSIX enumeration is blocked by Scoped Storage:
+            // Use SAF IStorageFolder.GetItemsAsync() to recursively stream files into the app staging directory.
+            var resultPaths = new List<string>();
+            string stagingDir = GetStagingDirectory();
+
+            try
+            {
+                await EnumerateStorageFolderRecursiveAsync(folder, resultPaths, stagingDir, supportedExtensions, maxDepth: 6, maxFiles: 500);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Fujify] Error during recursive storage folder scan: {ex}");
+            }
+
+            return resultPaths;
+        }
+
+        private async Task EnumerateStorageFolderRecursiveAsync(
+            IStorageFolder folder,
+            List<string> resultPaths,
+            string stagingDir,
+            IReadOnlyCollection<string>? supportedExtensions,
+            int maxDepth,
+            int maxFiles)
+        {
+            if (maxDepth <= 0 || resultPaths.Count >= maxFiles) return;
+
+            await foreach (var item in folder.GetItemsAsync())
+            {
+                if (resultPaths.Count >= maxFiles) break;
+
+                if (item is IStorageFile file)
+                {
+                    string ext = Path.GetExtension(file.Name);
+                    bool isCandidate = string.IsNullOrEmpty(ext) ||
+                                       supportedExtensions == null ||
+                                       supportedExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
+
+                    if (!isCandidate) continue;
+
+                    try
+                    {
+                        string fileName = file.Name;
+                        if (string.IsNullOrWhiteSpace(fileName))
+                        {
+                            try { fileName = Path.GetFileName(file.Path.LocalPath); } catch { }
+                        }
+                        if (string.IsNullOrWhiteSpace(fileName))
+                        {
+                            fileName = $"folder_import_{Guid.NewGuid():N}.raw";
+                        }
+
+                        fileName = Path.GetFileName(fileName);
+                        foreach (char c in Path.GetInvalidFileNameChars())
+                        {
+                            fileName = fileName.Replace(c, '_');
+                        }
+
+                        string destFilePath = Path.Combine(stagingDir, fileName);
+                        if (File.Exists(destFilePath))
+                        {
+                            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+                            string itemExt = Path.GetExtension(fileName);
+                            destFilePath = Path.Combine(stagingDir, $"{nameWithoutExt}_{Guid.NewGuid():N}{itemExt}");
+                        }
+
+                        await using (var sourceStream = await file.OpenReadAsync())
+                        await using (var destStream = File.Create(destFilePath))
+                        {
+                            await sourceStream.CopyToAsync(destStream);
+                        }
+
+                        if (string.IsNullOrEmpty(Path.GetExtension(destFilePath)))
+                        {
+                            string detectedExt = DetectRawExtension(destFilePath);
+                            if (!string.IsNullOrEmpty(detectedExt))
+                            {
+                                string newDestPath = Path.ChangeExtension(destFilePath, detectedExt);
+                                if (File.Exists(newDestPath)) File.Delete(newDestPath);
+                                File.Move(destFilePath, newDestPath);
+                                destFilePath = newDestPath;
+                            }
+                        }
+
+                        string finalExt = Path.GetExtension(destFilePath);
+                        if (supportedExtensions == null || supportedExtensions.Contains(finalExt, StringComparer.OrdinalIgnoreCase))
+                        {
+                            resultPaths.Add(destFilePath);
+                        }
+                        else
+                        {
+                            try { File.Delete(destFilePath); } catch { }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Fujify] Failed to stream file from folder: {ex.Message}");
+                    }
+                }
+                else if (item is IStorageFolder subFolder)
+                {
+                    await EnumerateStorageFolderRecursiveAsync(subFolder, resultPaths, stagingDir, supportedExtensions, maxDepth - 1, maxFiles);
+                }
+            }
+        }
+
+        public async Task<string?> ShowFolderBrowserDialogAsync(Window? owner, string title)
+        {
+            if (Application.Current == null) return null;
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                return await Dispatcher.UIThread.InvokeAsync(() => ShowFolderBrowserDialogAsync(owner, title));
+            }
+
+            PlatformEnsurePermissionsCallback?.Invoke();
+
+            var storage = GetStorageProvider(owner);
+            if (storage == null) return null;
+
+            var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = title,
+                AllowMultiple = false
+            });
+
+            if (folders.Count == 0) return null;
+            var folder = folders[0];
+            string? localPath = folder.TryGetLocalPath();
+            if (!string.IsNullOrEmpty(localPath) && Directory.Exists(localPath))
+            {
+                return localPath;
+            }
+
+            if (PlatformFolderResolver != null)
+            {
+                try
+                {
+                    string? resolved = PlatformFolderResolver(folder.Path);
+                    if (!string.IsNullOrEmpty(resolved))
+                    {
+                        return resolved;
+                    }
+                }
+                catch { }
+            }
+
+            string resolvedAndroid = ResolveAndroidStoragePath(folder.Path);
+            if (!string.IsNullOrEmpty(resolvedAndroid) && (Directory.Exists(resolvedAndroid) || OperatingSystem.IsAndroid()))
+            {
+                return resolvedAndroid;
+            }
+
+            return folder.Path.LocalPath;
+        }
+
+        public async Task ShowPreferencesDialogAsync(Window? owner)
+        {
+            if (Application.Current == null) return;
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => ShowPreferencesDialogAsync(owner));
+                return;
+            }
+
+            if (IsMobileOrSingleView || (owner == null && (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow == null))
+            {
+                MainViewModel.Instance?.ShowPreferencesModal();
+                return;
+            }
+
+            var vm = new PreferencesViewModel(_settingsService, _licenseService ?? LicenseService.Instance, dialogService: this);
+            var dialog = new PreferencesWindow(vm);
+
+            var targetOwner = owner ?? (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+            if (targetOwner != null)
+            {
+                if (targetOwner.WindowState == WindowState.Minimized)
+                {
+                    targetOwner.WindowState = WindowState.Normal;
+                }
+                targetOwner.Activate();
+                await dialog.ShowDialog(targetOwner);
+            }
+            else
+            {
+                dialog.Show();
+            }
+        }
+
+        public async Task ShowAboutDialogAsync(Window? owner)
+        {
+            if (Application.Current == null) return;
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => ShowAboutDialogAsync(owner));
+                return;
+            }
+
+            if (IsMobileOrSingleView || (owner == null && (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow == null))
+            {
+                MainViewModel.Instance?.ShowAboutModal();
+                return;
+            }
+
+            var dialog = new AboutWindow();
+            var targetOwner = owner ?? (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+            if (targetOwner != null)
+            {
+                if (targetOwner.WindowState == WindowState.Minimized)
+                {
+                    targetOwner.WindowState = WindowState.Normal;
+                }
+                targetOwner.Activate();
+                await dialog.ShowDialog(targetOwner);
+            }
+            else
+            {
+                dialog.Show();
+            }
+        }
+    }
+}

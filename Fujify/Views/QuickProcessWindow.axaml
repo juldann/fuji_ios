@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Fujify.ViewModels"
+        xmlns:loc="using:Fujify.Localization"
+        x:Class="Fujify.Views.QuickProcessWindow"
+        x:DataType="vm:QuickProcessViewModel"
+        Title="{Binding Title}"
+        Width="460" Height="250"
+        MinWidth="420" MinHeight="230"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaTitleBarHeightHint="0"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        Icon="/Assets/images/logo.ico">
+
+    <!-- Standalone Dialog Card Block -->
+    <Border Classes="dialog-card"
+            Background="{DynamicResource AppSurfaceBrush}"
+            BorderBrush="{DynamicResource AppEdgeBrush}"
+            BorderThickness="1"
+            CornerRadius="16"
+            Padding="22"
+            ClipToBounds="True"
+            PointerPressed="Window_PointerPressed">
+        <Grid RowDefinitions="Auto, *, Auto">
+            <!-- Header: Status Icon & Titles -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto, *" Margin="0,0,0,14">
+                <Border Grid.Column="0" Width="44" Height="44" CornerRadius="22" 
+                        Background="{DynamicResource AppGlassPillBrush}" 
+                        VerticalAlignment="Center" Margin="0,0,12,0">
+                    <TextBlock Text="{Binding StatusIcon}" FontSize="20" 
+                               Foreground="{Binding StatusIconColor}" 
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                    <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="15" 
+                               Foreground="{DynamicResource AppTextPrimaryBrush}" 
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Subtitle}" FontSize="11" 
+                               Foreground="{DynamicResource AppTextSecondaryBrush}" 
+                               TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Progress Section -->
+            <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="8" Margin="0,8,0,8">
+                <ProgressBar Height="6" CornerRadius="3" Minimum="0" Maximum="100"
+                             Value="{Binding ProgressValue}"
+                             IsIndeterminate="{Binding IsProgressIndeterminate}"/>
+                <Grid ColumnDefinitions="*, Auto">
+                    <TextBlock Grid.Column="0" Text="{Binding ProgressDetailText}" 
+                               FontSize="11" Foreground="{DynamicResource AppTextSecondaryBrush}" 
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ProgressPercentageText}" 
+                               FontSize="11" FontWeight="SemiBold" 
+                               Foreground="{DynamicResource AppTextPrimaryBrush}"/>
+                </Grid>
+            </StackPanel>
+
+            <!-- Action Buttons Footer -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                <Button Content="{loc:Loc OpenOutputFolder}" Command="{Binding OpenFolderCommand}" 
+                        IsVisible="{Binding CanOpenFolder}" Classes="secondary" Height="34" Padding="14,0" CornerRadius="17"
+                        VerticalContentAlignment="Center"/>
+                <Button Content="{loc:Loc Cancel}" Command="{Binding CancelCommand}" 
+                        IsVisible="{Binding IsProcessing}" Classes="secondary" Height="34" Width="90" CornerRadius="17"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                <Button Content="{loc:Loc Done}" Command="{Binding DoneCommand}" 
+                        IsVisible="{Binding IsCompleted}" Classes="primary" Height="34" Width="90" CornerRadius="17"
+                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

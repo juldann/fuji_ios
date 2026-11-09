@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <StartupObject Condition="'$(OutputType)' != 'Library'">Fujify.Program</StartupObject>
+    <TargetFramework>net10.0</TargetFramework>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest Condition="'$(TargetPlatformIdentifier)' == ''">app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\images\logo.ico</ApplicationIcon>
+    <AssemblyName>Fujifier</AssemblyName>
+    <Product>Fujifier</Product>
+    <AssemblyTitle>Fujifier</AssemblyTitle>
+    <Description>Fujifilm Film Simulation Profiles for Any RAW Photo</Description>
+    <Version>2.1.1</Version>
+    <AssemblyVersion>2.1.1.0</AssemblyVersion>
+    <FileVersion>2.1.1.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Fujify.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Models\" />
+    <AvaloniaResource Include="Assets\**" />
+    <Content Include="libs\**" Condition="'$(TargetPlatformIdentifier)' == ''">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" />
+    <PackageReference Include="Avalonia.Desktop" Condition="'$(TargetPlatformIdentifier)' == ''" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Condition="'$(Configuration)' == 'Debug'" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="SkiaSharp" />
+  </ItemGroup>
+</Project>
