@@ -846,32 +846,4 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 
         return outputPaths;
     }
-
-                if (!string.IsNullOrEmpty(importedPath) && File.Exists(importedPath))
-                {
-                    // Detect file extension if missing or generic .raw
-                    string ext = Path.GetExtension(importedPath);
-                    if (string.IsNullOrEmpty(ext) || ext.Equals(".raw", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string detected = DialogService.DetectRawExtension(importedPath);
-                        if (!string.IsNullOrEmpty(detected) && !detected.Equals(".raw", StringComparison.OrdinalIgnoreCase))
-                        {
-                            string renamed = Path.ChangeExtension(importedPath, detected);
-                            if (File.Exists(renamed)) File.Delete(renamed);
-                            File.Move(importedPath, renamed);
-                            importedPath = renamed;
-                        }
-                    }
-
-                    outputPaths.Add(importedPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Fujify iOS] Error processing item: {ex.Message}");
-            }
-        }
-
-        return outputPaths;
-    }
 }
