@@ -3463,6 +3463,12 @@ namespace Fujify.ViewModels
                 IReadOnlyList<string>? selectedFiles = null;
                 if (PlatformPickPhotosCallback != null)
                 {
+                    IsLoading = true;
+                    IsImporting = true;
+                    IsProgressVisible = true;
+                    ImportProgress = 0;
+                    ImportStatusText = "Menyiapkan foto...";
+
                     PlatformPickProgressCallback = (current, total, file, fraction) =>
                     {
                         Dispatcher.UIThread.Post(() =>

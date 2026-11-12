@@ -616,8 +616,10 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                         return;
                     }
 
+                    var topController = GetTopViewController() ?? _topController;
                     var hud = new ICloudProgressHud();
-                    hud.Show(_topController, results.Length);
+                    hud.Show(topController, results.Length);
+                    MainViewModel.ReportPlatformPickProgress(1, results.Length, "Menyiapkan foto...", 0.05);
 
                     IReadOnlyList<string> files;
                     try

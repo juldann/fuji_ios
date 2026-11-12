@@ -6,19 +6,12 @@ using UIKit;
 namespace Fujify.iOS;
 
 /// <summary>
-/// Native iOS modal HUD showing real-time progress while downloading photos from iCloud.
-/// Designed according to Apple Human Interface Guidelines with dark blur and emerald accents.
+/// Bulletproof native iOS modal HUD implemented as a transparent OverFullScreen UIViewController.
+/// Complies with Apple Human Interface Guidelines with dark frosted blur and emerald accents.
 /// </summary>
 public class ICloudProgressHud
 {
-    private UIView? _overlayView;
-    private UIVisualEffectView? _hudCard;
-    private UIActivityIndicatorView? _spinner;
-    private UILabel? _titleLabel;
-    private UILabel? _statusLabel;
-    private UIProgressView? _progressBar;
-    private UILabel? _percentLabel;
-    private UIButton? _cancelButton;
+    private HudModalViewController? _controller;
     private volatile bool _isCancelled;
 
     public bool IsCancelled => _isCancelled;
@@ -29,31 +22,95 @@ public class ICloudProgressHud
 
         UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
         {
-            var window = parent.View?.Window ?? UIApplication.SharedApplication.KeyWindow;
-            var parentView = window ?? parent.View;
-            if (parentView == null) return;
-
-            // Ensure any existing HUD is removed
-            _overlayView?.RemoveFromSuperview();
-
-            // Dim backdrop overlay
-            _overlayView = new UIView(parentView.Bounds)
+            try
             {
-                BackgroundColor = UIColor.FromRGBA(0f, 0f, 0f, 0.45f),
-                AutoresizingMask = UIViewAutoresizing.FlexibleWidth | UIViewAutoresizing.FlexibleHeight,
-                Alpha = 0f
-            };
+                // Find active presenting controller
+                var presenter = parent;
+                while (presenter.PresentedViewController != null && !presenter.PresentedViewController.IsBeingDismissed)
+                {
+                    presenter = presenter.PresentedViewController;
+                }
 
-            // Dark frosted glass container
+                _controller = new HudModalViewController(totalCount, () =>
+                {
+                    _isCancelled = true;
+                });
+
+                presenter.PresentViewController(_controller, true, null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ICloudProgressHud] Error presenting HUD: {ex.Message}");
+            }
+        });
+    }
+
+    public void Update(int currentIndex, int totalCount, string fileName, double itemFraction)
+    {
+        if (_isCancelled) return;
+
+        UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
+        {
+            _controller?.UpdateProgress(currentIndex, totalCount, fileName, itemFraction);
+        });
+    }
+
+    public void Dismiss()
+    {
+        UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                if (_controller != null && !_controller.IsBeingDismissed)
+                {
+                    _controller.DismissViewController(true, null);
+                    _controller = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ICloudProgressHud] Error dismissing HUD: {ex.Message}");
+            }
+        });
+    }
+
+    private class HudModalViewController : UIViewController
+    {
+        private readonly int _initialCount;
+        private readonly Action _onCancel;
+        private UIVisualEffectView? _hudCard;
+        private UIActivityIndicatorView? _spinner;
+        private UILabel? _titleLabel;
+        private UILabel? _statusLabel;
+        private UIProgressView? _progressBar;
+        private UILabel? _percentLabel;
+        private UIButton? _cancelButton;
+
+        public HudModalViewController(int initialCount, Action onCancel)
+        {
+            _initialCount = initialCount;
+            _onCancel = onCancel;
+            ModalPresentationStyle = UIModalPresentationStyle.OverFullScreen;
+            ModalTransitionStyle = UIModalTransitionStyle.CrossDissolve;
+        }
+
+        public override void ViewDidLoad()
+        {
+            base.ViewDidLoad();
+            if (View == null) return;
+
+            View.BackgroundColor = UIColor.FromRGBA(0f, 0f, 0f, 0.55f);
+
+            // Frosted blur container
             UIBlurEffect blurEffect = UIBlurEffect.FromStyle(UIBlurEffectStyle.SystemMaterialDark);
             _hudCard = new UIVisualEffectView(blurEffect)
             {
                 ClipsToBounds = true,
                 TranslatesAutoresizingMaskIntoConstraints = false
             };
-            _hudCard.Layer.CornerRadius = 18f;
+            _hudCard.Layer.CornerRadius = 20f;
             _hudCard.Layer.BorderWidth = 1f;
-            _hudCard.Layer.BorderColor = UIColor.FromRGBA(1f, 1f, 1f, 0.12f).CGColor;
+            _hudCard.Layer.BorderColor = UIColor.FromRGBA(1f, 1f, 1f, 0.15f).CGColor;
 
             // Emerald spinner
             _spinner = new UIActivityIndicatorView(UIActivityIndicatorViewStyle.Medium)
@@ -64,7 +121,7 @@ public class ICloudProgressHud
             };
             _spinner.StartAnimating();
 
-            // Header title
+            // Title
             _titleLabel = new UILabel
             {
                 Text = "Mengunduh dari iCloud...",
@@ -74,26 +131,26 @@ public class ICloudProgressHud
                 TranslatesAutoresizingMaskIntoConstraints = false
             };
 
-            // Detail / filename label
+            // Status label
             _statusLabel = new UILabel
             {
-                Text = totalCount > 1 ? $"Foto 1 dari {totalCount}" : "Menyiapkan foto...",
-                TextColor = UIColor.FromRGBA(1f, 1f, 1f, 0.72f),
+                Text = _initialCount > 1 ? $"Foto 1 dari {_initialCount}" : "Menghubungkan ke foto...",
+                TextColor = UIColor.FromRGBA(1f, 1f, 1f, 0.75f),
                 Font = UIFont.SystemFontOfSize(12f),
                 TextAlignment = UITextAlignment.Center,
                 LineBreakMode = UILineBreakMode.MiddleTruncation,
                 TranslatesAutoresizingMaskIntoConstraints = false
             };
 
-            // Progress bar
+            // Emerald Progress bar
             _progressBar = new UIProgressView(UIProgressViewStyle.Default)
             {
                 ProgressTintColor = UIColor.FromRGB(0x34, 0xD3, 0x99),
-                TrackTintColor = UIColor.FromRGBA(1f, 1f, 1f, 0.15f),
+                TrackTintColor = UIColor.FromRGBA(1f, 1f, 1f, 0.2f),
                 Progress = 0f,
                 TranslatesAutoresizingMaskIntoConstraints = false
             };
-            _progressBar.Layer.CornerRadius = 2.5f;
+            _progressBar.Layer.CornerRadius = 3f;
             _progressBar.ClipsToBounds = true;
 
             // Percentage label
@@ -106,10 +163,10 @@ public class ICloudProgressHud
                 TranslatesAutoresizingMaskIntoConstraints = false
             };
 
-            // Cancel action button
+            // Cancel button
             _cancelButton = UIButton.FromType(UIButtonType.System);
             _cancelButton.SetTitle("Batal", UIControlState.Normal);
-            _cancelButton.SetTitleColor(UIColor.FromRGBA(1f, 1f, 1f, 0.65f), UIControlState.Normal);
+            _cancelButton.SetTitleColor(UIColor.FromRGBA(1f, 1f, 1f, 0.7f), UIControlState.Normal);
             if (_cancelButton.TitleLabel != null)
             {
                 _cancelButton.TitleLabel.Font = UIFont.SystemFontOfSize(13f);
@@ -117,12 +174,12 @@ public class ICloudProgressHud
             _cancelButton.TranslatesAutoresizingMaskIntoConstraints = false;
             _cancelButton.TouchUpInside += (s, e) =>
             {
-                _isCancelled = true;
                 if (_statusLabel != null)
                 {
-                    _statusLabel.Text = "Membatalkan...";
+                    _statusLabel.Text = "Membatalkan unduhan...";
                 }
                 _cancelButton.Enabled = false;
+                _onCancel();
             };
 
             var contentView = _hudCard.ContentView;
@@ -133,17 +190,16 @@ public class ICloudProgressHud
             contentView.AddSubview(_percentLabel);
             contentView.AddSubview(_cancelButton);
 
-            _overlayView.AddSubview(_hudCard);
-            parentView.AddSubview(_overlayView);
+            View.AddSubview(_hudCard);
 
-            // Auto Layout Constraints
+            // Safe, direct parent-child auto layout constraints
             NSLayoutConstraint.ActivateConstraints(new[]
             {
-                _hudCard.CenterXAnchor.ConstraintEqualTo(parentView.CenterXAnchor),
-                _hudCard.CenterYAnchor.ConstraintEqualTo(parentView.CenterYAnchor),
-                _hudCard.WidthAnchor.ConstraintEqualTo(270f),
+                _hudCard.CenterXAnchor.ConstraintEqualTo(View.CenterXAnchor),
+                _hudCard.CenterYAnchor.ConstraintEqualTo(View.CenterYAnchor),
+                _hudCard.WidthAnchor.ConstraintEqualTo(280f),
 
-                _spinner.TopAnchor.ConstraintEqualTo(contentView.TopAnchor, 18f),
+                _spinner.TopAnchor.ConstraintEqualTo(contentView.TopAnchor, 20f),
                 _spinner.CenterXAnchor.ConstraintEqualTo(contentView.CenterXAnchor),
 
                 _titleLabel.TopAnchor.ConstraintEqualTo(_spinner.BottomAnchor, 10f),
@@ -157,7 +213,7 @@ public class ICloudProgressHud
                 _progressBar.TopAnchor.ConstraintEqualTo(_statusLabel.BottomAnchor, 14f),
                 _progressBar.LeadingAnchor.ConstraintEqualTo(contentView.LeadingAnchor, 20f),
                 _progressBar.TrailingAnchor.ConstraintEqualTo(contentView.TrailingAnchor, -20f),
-                _progressBar.HeightAnchor.ConstraintEqualTo(5f),
+                _progressBar.HeightAnchor.ConstraintEqualTo(6f),
 
                 _percentLabel.TopAnchor.ConstraintEqualTo(_progressBar.BottomAnchor, 6f),
                 _percentLabel.CenterXAnchor.ConstraintEqualTo(contentView.CenterXAnchor),
@@ -167,19 +223,9 @@ public class ICloudProgressHud
                 _cancelButton.BottomAnchor.ConstraintEqualTo(contentView.BottomAnchor, -12f),
                 _cancelButton.HeightAnchor.ConstraintEqualTo(32f)
             });
+        }
 
-            UIView.Animate(0.25, () =>
-            {
-                _overlayView.Alpha = 1f;
-            });
-        });
-    }
-
-    public void Update(int currentIndex, int totalCount, string fileName, double itemFraction)
-    {
-        if (_isCancelled) return;
-
-        UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
+        public void UpdateProgress(int currentIndex, int totalCount, string fileName, double itemFraction)
         {
             if (_statusLabel != null)
             {
@@ -204,27 +250,6 @@ public class ICloudProgressHud
             {
                 _percentLabel.Text = $"{(int)(totalFraction * 100.0)}%";
             }
-        });
-    }
-
-    public void Dismiss()
-    {
-        UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
-        {
-            if (_overlayView != null)
-            {
-                var viewToDismiss = _overlayView;
-                _overlayView = null;
-                _hudCard = null;
-
-                UIView.Animate(0.2, () =>
-                {
-                    viewToDismiss.Alpha = 0f;
-                }, () =>
-                {
-                    viewToDismiss.RemoveFromSuperview();
-                });
-            }
-        });
+        }
     }
 }
