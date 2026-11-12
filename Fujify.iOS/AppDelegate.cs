@@ -579,7 +579,7 @@ public class AppDelegate : AvaloniaAppDelegate<App>
             };
 
             var picker = new PHPickerViewController(config);
-            var pickerDelegate = new PhotoPickerDelegate(tcs);
+            var pickerDelegate = new PhotoPickerDelegate(topController, tcs);
             picker.Delegate = pickerDelegate;
 
             _activePickerDelegate = pickerDelegate;
@@ -594,10 +594,12 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 
     private class PhotoPickerDelegate : PHPickerViewControllerDelegate
     {
+        private readonly UIViewController _topController;
         private readonly TaskCompletionSource<IReadOnlyList<string>?> _tcs;
 
-        public PhotoPickerDelegate(TaskCompletionSource<IReadOnlyList<string>?> tcs)
+        public PhotoPickerDelegate(UIViewController topController, TaskCompletionSource<IReadOnlyList<string>?> tcs)
         {
+            _topController = topController;
             _tcs = tcs;
         }
 
@@ -614,7 +616,19 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                         return;
                     }
 
-                    var files = await ProcessPickedResultsAsync(results);
+                    var hud = new ICloudProgressHud();
+                    hud.Show(_topController, results.Length);
+
+                    IReadOnlyList<string> files;
+                    try
+                    {
+                        files = await ProcessPickedResultsAsync(results, hud);
+                    }
+                    finally
+                    {
+                        hud.Dismiss();
+                    }
+
                     _tcs.TrySetResult(files);
                 }
                 catch (Exception ex)
@@ -633,16 +647,28 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 #pragma warning restore CA1422
     }
 
-    private static async Task<IReadOnlyList<string>> ProcessPickedResultsAsync(PHPickerResult[] results)
+    private static async Task<IReadOnlyList<string>> ProcessPickedResultsAsync(PHPickerResult[] results, ICloudProgressHud hud)
     {
         var outputPaths = new List<string>();
         string stagingDir = DialogService.GetStagingDirectory();
+        int total = results.Length;
 
-        foreach (var result in results)
+        for (int i = 0; i < total; i++)
         {
+            if (hud.IsCancelled)
+            {
+                break;
+            }
+
+            var result = results[i];
+            int itemIndex = i + 1;
+            hud.Update(itemIndex, total, string.Empty, 0.0);
+            MainViewModel.ReportPlatformPickProgress(itemIndex, total, string.Empty, 0.0);
+
             try
             {
                 string? importedPath = null;
+                string? displayFileName = null;
 
                 // 1. Try PHAsset direct master resource export (for high-fidelity camera RAW preservation)
                 if (!string.IsNullOrEmpty(result.AssetIdentifier))
@@ -676,10 +702,19 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                                 {
                                     fileName = $"photo_{Guid.NewGuid():N}.dng";
                                 }
+                                displayFileName = fileName;
+                                hud.Update(itemIndex, total, fileName, 0.05);
+                                MainViewModel.ReportPlatformPickProgress(itemIndex, total, fileName, 0.05);
+
                                 string destFile = Path.Combine(stagingDir, $"{Guid.NewGuid():N}_{fileName}");
                                 var options = new PHAssetResourceRequestOptions
                                 {
-                                    NetworkAccessAllowed = true
+                                    NetworkAccessAllowed = true,
+                                    ProgressHandler = (double prog) =>
+                                    {
+                                        hud.Update(itemIndex, total, fileName, prog);
+                                        MainViewModel.ReportPlatformPickProgress(itemIndex, total, fileName, prog);
+                                    }
                                 };
 
                                 var writeTcs = new TaskCompletionSource<bool>();
@@ -711,7 +746,7 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                 }
 
                 // 2. Fallback to NSItemProvider file representation
-                if (importedPath == null && result.ItemProvider != null)
+                if (importedPath == null && result.ItemProvider != null && !hud.IsCancelled)
                 {
                     var item = result.ItemProvider;
                     var typeIds = item.RegisteredTypeIdentifiers;
@@ -721,34 +756,96 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                             ?? typeIds.FirstOrDefault(id => id.Equals("public.image", StringComparison.OrdinalIgnoreCase))
                             ?? typeIds[0];
 
+                        string fallbackName = item.SuggestedName ?? $"photo_{itemIndex}";
+                        displayFileName ??= fallbackName;
+                        hud.Update(itemIndex, total, displayFileName, 0.1);
+                        MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName, 0.1);
+
                         var loadTcs = new TaskCompletionSource<string?>();
-                        item.LoadFileRepresentation(preferredType, (url, err) =>
+                        NSProgress? nsProgress = null;
+                        try
                         {
-                            if (url != null && !string.IsNullOrEmpty(url.Path) && File.Exists(url.Path))
+                            nsProgress = item.LoadFileRepresentation(preferredType, (url, err) =>
                             {
-                                try
+                                if (url != null && !string.IsNullOrEmpty(url.Path) && File.Exists(url.Path))
                                 {
-                                    string origName = Path.GetFileName(url.Path);
-                                    if (string.IsNullOrWhiteSpace(origName) || origName.StartsWith("tmp", StringComparison.OrdinalIgnoreCase))
+                                    try
                                     {
-                                        origName = item.SuggestedName ?? $"photo_{Guid.NewGuid():N}.raw";
+                                        string origName = Path.GetFileName(url.Path);
+                                        if (string.IsNullOrWhiteSpace(origName) || origName.StartsWith("tmp", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            origName = item.SuggestedName ?? $"photo_{Guid.NewGuid():N}.raw";
+                                        }
+                                        string destFile = Path.Combine(stagingDir, $"{Guid.NewGuid():N}_{origName}");
+                                        File.Copy(url.Path, destFile, true);
+                                        loadTcs.TrySetResult(destFile);
+                                        return;
                                     }
-                                    string destFile = Path.Combine(stagingDir, $"{Guid.NewGuid():N}_{origName}");
-                                    File.Copy(url.Path, destFile, true);
-                                    loadTcs.TrySetResult(destFile);
-                                    return;
+                                    catch (Exception ex)
+                                    {
+                                        System.Diagnostics.Debug.WriteLine($"[Fujify iOS] Error copying from LoadFileRepresentation: {ex.Message}");
+                                    }
                                 }
-                                catch (Exception ex)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"[Fujify iOS] Error copying from LoadFileRepresentation: {ex.Message}");
-                                }
-                            }
+                                loadTcs.TrySetResult(null);
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Fujify iOS] LoadFileRepresentation call failed: {ex.Message}");
                             loadTcs.TrySetResult(null);
-                        });
+                        }
+
+                        // Monitor progress while awaiting loadTcs
+                        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(5));
+                        var pollTask = Task.Run(async () =>
+                        {
+                            while (!loadTcs.Task.IsCompleted && !cts.IsCancellationRequested && !hud.IsCancelled)
+                            {
+                                if (nsProgress != null && nsProgress.FractionCompleted > 0)
+                                {
+                                    double frac = Math.Clamp(nsProgress.FractionCompleted, 0.0, 1.0);
+                                    hud.Update(itemIndex, total, displayFileName, frac);
+                                    MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName, frac);
+                                }
+                                await Task.Delay(100);
+                            }
+                        }, cts.Token);
 
                         importedPath = await loadTcs.Task;
+                        cts.Cancel();
                     }
                 }
+
+                hud.Update(itemIndex, total, displayFileName ?? string.Empty, 1.0);
+                MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName ?? string.Empty, 1.0);
+
+                if (!string.IsNullOrEmpty(importedPath) && File.Exists(importedPath))
+                {
+                    // Detect file extension if missing or generic .raw
+                    string ext = Path.GetExtension(importedPath);
+                    if (string.IsNullOrEmpty(ext) || ext.Equals(".raw", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string detected = DialogService.DetectRawExtension(importedPath);
+                        if (!string.IsNullOrEmpty(detected) && !detected.Equals(".raw", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string renamed = Path.ChangeExtension(importedPath, detected);
+                            if (File.Exists(renamed)) File.Delete(renamed);
+                            File.Move(importedPath, renamed);
+                            importedPath = renamed;
+                        }
+                    }
+
+                    outputPaths.Add(importedPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Fujify iOS] Error processing item {itemIndex}: {ex.Message}");
+            }
+        }
+
+        return outputPaths;
+    }
 
                 if (!string.IsNullOrEmpty(importedPath) && File.Exists(importedPath))
                 {

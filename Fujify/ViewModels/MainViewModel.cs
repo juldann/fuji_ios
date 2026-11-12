@@ -365,6 +365,12 @@ namespace Fujify.ViewModels
         public static Action<IReadOnlyList<string>>? PlatformOpenInLightroomCallback { get; set; }
         public static Action<IReadOnlyList<string>>? PlatformOpenInCaptureOneCallback { get; set; }
         public static Func<Task<IReadOnlyList<string>?>>? PlatformPickPhotosCallback { get; set; }
+        public static Action<int, int, string, double>? PlatformPickProgressCallback { get; set; }
+
+        public static void ReportPlatformPickProgress(int currentIndex, int totalCount, string fileName, double itemFraction)
+        {
+            PlatformPickProgressCallback?.Invoke(currentIndex, totalCount, fileName, itemFraction);
+        }
 
         private readonly List<string> _recentlyConvertedDngFiles = new();
         private readonly List<string> _batchExistingSkippedFiles = new();
@@ -3457,7 +3463,32 @@ namespace Fujify.ViewModels
                 IReadOnlyList<string>? selectedFiles = null;
                 if (PlatformPickPhotosCallback != null)
                 {
-                    selectedFiles = await PlatformPickPhotosCallback();
+                    PlatformPickProgressCallback = (current, total, file, fraction) =>
+                    {
+                        Dispatcher.UIThread.Post(() =>
+                        {
+                            IsLoading = true;
+                            IsImporting = true;
+                            IsProgressVisible = true;
+                            double totalFraction = total > 0 ? Math.Clamp(((current - 1) + fraction) / (double)total, 0.0, 1.0) : 0;
+                            double pct = Math.Round(totalFraction * 100.0, 1);
+                            ProgressValue = pct;
+                            ImportProgress = pct;
+                            string nameText = string.IsNullOrEmpty(file) ? "" : $": {file}";
+                            ImportStatusText = total > 1
+                                ? $"Mengunduh dari iCloud ({current}/{total}){nameText}"
+                                : $"Mengunduh dari iCloud{nameText}";
+                        });
+                    };
+
+                    try
+                    {
+                        selectedFiles = await PlatformPickPhotosCallback();
+                    }
+                    finally
+                    {
+                        PlatformPickProgressCallback = null;
+                    }
                 }
                 else
                 {
@@ -3468,9 +3499,24 @@ namespace Fujify.ViewModels
                 {
                     await AddFilesAsync(selectedFiles);
                 }
+                else
+                {
+                    IsImporting = false;
+                    IsLoading = false;
+                    IsProgressVisible = false;
+                    ProgressValue = 0;
+                    ImportProgress = 0;
+                    ImportStatusText = string.Empty;
+                }
             }
             catch (Exception ex)
             {
+                IsImporting = false;
+                IsLoading = false;
+                IsProgressVisible = false;
+                ProgressValue = 0;
+                ImportProgress = 0;
+                ImportStatusText = string.Empty;
                 System.Diagnostics.Debug.WriteLine($"[Fujifier] Error in ExecuteAddFilesAsync: {ex}");
                 await _dialogService.ShowMessageAsync(OwnerWindow, "Import Error", $"Failed to select files: {ex.Message}");
             }

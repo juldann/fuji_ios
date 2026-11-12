@@ -405,8 +405,9 @@ namespace Fujify.Services
                 var resultPaths = new List<string>();
                 string stagingDir = GetStagingDirectory();
 
-                foreach (var file in files)
+                for (int i = 0; i < files.Count; i++)
                 {
+                    var file = files[i];
                     if (file == null) continue;
 
                     // 1. Direct POSIX access check
@@ -448,6 +449,8 @@ namespace Fujify.Services
                             fileName = fileName.Replace(c, '_');
                         }
 
+                        ViewModels.MainViewModel.ReportPlatformPickProgress(i + 1, files.Count, fileName, 0.1);
+
                         string destFilePath = Path.Combine(stagingDir, fileName);
 
                         await using (var sourceStream = await file.OpenReadAsync())
@@ -455,6 +458,8 @@ namespace Fujify.Services
                         {
                             await sourceStream.CopyToAsync(destStream);
                         }
+
+                        ViewModels.MainViewModel.ReportPlatformPickProgress(i + 1, files.Count, fileName, 1.0);
 
                         // If file has no extension (e.g. Android SAF content URI gave a name without extension),
                         // inspect the header bytes to detect RAW format and append correct extension:
