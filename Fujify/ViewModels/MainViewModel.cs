@@ -365,11 +365,11 @@ namespace Fujify.ViewModels
         public static Action<IReadOnlyList<string>>? PlatformOpenInLightroomCallback { get; set; }
         public static Action<IReadOnlyList<string>>? PlatformOpenInCaptureOneCallback { get; set; }
         public static Func<Task<IReadOnlyList<string>?>>? PlatformPickPhotosCallback { get; set; }
-        public static Action<int, int, string, double>? PlatformPickProgressCallback { get; set; }
+        public static Action<int, int, string, double, string?>? PlatformPickProgressCallback { get; set; }
 
-        public static void ReportPlatformPickProgress(int currentIndex, int totalCount, string fileName, double itemFraction)
+        public static void ReportPlatformPickProgress(int currentIndex, int totalCount, string fileName, double itemFraction, string? title = null)
         {
-            PlatformPickProgressCallback?.Invoke(currentIndex, totalCount, fileName, itemFraction);
+            PlatformPickProgressCallback?.Invoke(currentIndex, totalCount, fileName, itemFraction, title);
         }
 
         private readonly List<string> _recentlyConvertedDngFiles = new();
@@ -2283,6 +2283,13 @@ namespace Fujify.ViewModels
             }
         }
 
+        private string _importTitleText = "Memuat Foto dari Galeri...";
+        public string ImportTitleText
+        {
+            get => _importTitleText;
+            set => SetProperty(ref _importTitleText, value);
+        }
+
         public string ImportPercentText => $"{(int)_importProgress}%";
 
         public bool IsLoading
@@ -2383,7 +2390,8 @@ namespace Fujify.ViewModels
             IsLoading = true;
             IsImporting = true;
             ImportProgress = 0;
-            ImportStatusText = "Scanning folders and files...";
+            ImportTitleText = "Memuat Foto dari Galeri...";
+            ImportStatusText = "Memindai foto...";
             IsProgressVisible = true;
             ProgressValue = 0;
             try
@@ -2528,7 +2536,8 @@ namespace Fujify.ViewModels
 
                 Dispatcher.UIThread.Post(() =>
                 {
-                    ImportStatusText = $"Loading photo details (0 of {totalFiles})...";
+                    ImportTitleText = "Menyiapkan Antrean Foto...";
+                    ImportStatusText = $"Menyiapkan foto (0 dari {totalFiles})...";
                     ImportProgress = 0;
                     ProgressValue = 0;
                 });
@@ -2571,7 +2580,7 @@ namespace Fujify.ViewModels
                                 {
                                     ImportProgress = pct;
                                     ProgressValue = pct;
-                                    ImportStatusText = $"Loading photo details ({curr} of {totalFiles})...";
+                                    ImportStatusText = $"Menyiapkan foto ({curr} dari {totalFiles})...";
                                 });
                             }
                         }
@@ -3467,23 +3476,32 @@ namespace Fujify.ViewModels
                     IsImporting = true;
                     IsProgressVisible = true;
                     ImportProgress = 0;
+                    ImportTitleText = "Memuat Foto dari Galeri...";
                     ImportStatusText = "Menyiapkan foto...";
 
-                    PlatformPickProgressCallback = (current, total, file, fraction) =>
+                    PlatformPickProgressCallback = (current, total, file, fraction, customTitle) =>
                     {
                         Dispatcher.UIThread.Post(() =>
                         {
                             IsLoading = true;
                             IsImporting = true;
                             IsProgressVisible = true;
+                            if (!string.IsNullOrEmpty(customTitle))
+                            {
+                                ImportTitleText = customTitle;
+                            }
+                            else
+                            {
+                                ImportTitleText = "Memuat Foto dari Galeri...";
+                            }
                             double totalFraction = total > 0 ? Math.Clamp(((current - 1) + fraction) / (double)total, 0.0, 1.0) : 0;
                             double pct = Math.Round(totalFraction * 100.0, 1);
                             ProgressValue = pct;
                             ImportProgress = pct;
                             string nameText = string.IsNullOrEmpty(file) ? "" : $": {file}";
                             ImportStatusText = total > 1
-                                ? $"Mengunduh dari iCloud ({current}/{total}){nameText}"
-                                : $"Mengunduh dari iCloud{nameText}";
+                                ? $"Foto {current} dari {total}{nameText}"
+                                : $"Memuat{nameText}";
                         });
                     };
 

@@ -532,8 +532,10 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 
             alert.AddAction(UIAlertAction.Create("Files App (Browse Files)", UIAlertActionStyle.Default, async _ =>
             {
+                var hud = new ICloudProgressHud();
                 try
                 {
+                    hud.Show(topController, 1, "Memuat File...");
                     var dialogService = new DialogService();
                     var files = await dialogService.ShowOpenFileDialogAsync(null, "Select RAW & DNG files", allowMultiple: true);
                     tcs.TrySetResult(files);
@@ -542,6 +544,10 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                 {
                     System.Diagnostics.Debug.WriteLine($"[Fujify iOS] Error picking from files: {ex}");
                     tcs.TrySetResult(Array.Empty<string>());
+                }
+                finally
+                {
+                    hud.Dismiss();
                 }
             }));
 
@@ -618,8 +624,8 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 
                     var topController = GetTopViewController() ?? _topController;
                     var hud = new ICloudProgressHud();
-                    hud.Show(topController, results.Length);
-                    MainViewModel.ReportPlatformPickProgress(1, results.Length, "Menyiapkan foto...", 0.05);
+                    hud.Show(topController, results.Length, "Memuat Foto dari Galeri...");
+                    MainViewModel.ReportPlatformPickProgress(1, results.Length, "Menyiapkan foto...", 0.05, "Memuat Foto dari Galeri...");
 
                     IReadOnlyList<string> files;
                     try
@@ -664,8 +670,8 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 
             var result = results[i];
             int itemIndex = i + 1;
-            hud.Update(itemIndex, total, string.Empty, 0.0);
-            MainViewModel.ReportPlatformPickProgress(itemIndex, total, string.Empty, 0.0);
+            hud.Update(itemIndex, total, string.Empty, 0.0, "Memuat Foto dari Galeri...");
+            MainViewModel.ReportPlatformPickProgress(itemIndex, total, string.Empty, 0.0, "Memuat Foto dari Galeri...");
 
             try
             {
@@ -705,8 +711,8 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                                     fileName = $"photo_{Guid.NewGuid():N}.dng";
                                 }
                                 displayFileName = fileName;
-                                hud.Update(itemIndex, total, fileName, 0.05);
-                                MainViewModel.ReportPlatformPickProgress(itemIndex, total, fileName, 0.05);
+                                hud.Update(itemIndex, total, fileName, 0.05, "Memuat Foto dari Galeri...");
+                                MainViewModel.ReportPlatformPickProgress(itemIndex, total, fileName, 0.05, "Memuat Foto dari Galeri...");
 
                                 string destFile = Path.Combine(stagingDir, $"{Guid.NewGuid():N}_{fileName}");
                                 var options = new PHAssetResourceRequestOptions
@@ -714,8 +720,9 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                                     NetworkAccessAllowed = true,
                                     ProgressHandler = (double prog) =>
                                     {
-                                        hud.Update(itemIndex, total, fileName, prog);
-                                        MainViewModel.ReportPlatformPickProgress(itemIndex, total, fileName, prog);
+                                        string title = prog < 1.0 ? "Mengunduh dari iCloud..." : "Memuat Foto dari Galeri...";
+                                        hud.Update(itemIndex, total, fileName, prog, title);
+                                        MainViewModel.ReportPlatformPickProgress(itemIndex, total, fileName, prog, title);
                                     }
                                 };
 
@@ -760,8 +767,8 @@ public class AppDelegate : AvaloniaAppDelegate<App>
 
                         string fallbackName = item.SuggestedName ?? $"photo_{itemIndex}";
                         displayFileName ??= fallbackName;
-                        hud.Update(itemIndex, total, displayFileName, 0.1);
-                        MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName, 0.1);
+                        hud.Update(itemIndex, total, displayFileName, 0.1, "Memuat Foto dari Galeri...");
+                        MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName, 0.1, "Memuat Foto dari Galeri...");
 
                         var loadTcs = new TaskCompletionSource<string?>();
                         NSProgress? nsProgress = null;
@@ -806,8 +813,8 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                                 if (nsProgress != null && nsProgress.FractionCompleted > 0)
                                 {
                                     double frac = Math.Clamp(nsProgress.FractionCompleted, 0.0, 1.0);
-                                    hud.Update(itemIndex, total, displayFileName, frac);
-                                    MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName, frac);
+                                    hud.Update(itemIndex, total, displayFileName, frac, "Memuat Foto dari Galeri...");
+                                    MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName, frac, "Memuat Foto dari Galeri...");
                                 }
                                 await Task.Delay(100);
                             }
@@ -818,8 +825,8 @@ public class AppDelegate : AvaloniaAppDelegate<App>
                     }
                 }
 
-                hud.Update(itemIndex, total, displayFileName ?? string.Empty, 1.0);
-                MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName ?? string.Empty, 1.0);
+                hud.Update(itemIndex, total, displayFileName ?? string.Empty, 1.0, "Memuat Foto dari Galeri...");
+                MainViewModel.ReportPlatformPickProgress(itemIndex, total, displayFileName ?? string.Empty, 1.0, "Memuat Foto dari Galeri...");
 
                 if (!string.IsNullOrEmpty(importedPath) && File.Exists(importedPath))
                 {

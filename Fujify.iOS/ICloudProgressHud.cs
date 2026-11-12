@@ -7,7 +7,7 @@ namespace Fujify.iOS;
 
 /// <summary>
 /// Bulletproof native iOS modal HUD implemented as a transparent OverFullScreen UIViewController.
-/// Complies with Apple Human Interface Guidelines with dark frosted blur and emerald accents.
+/// Displays real-time progress for both local photo library uploads/imports and iCloud downloads.
 /// </summary>
 public class ICloudProgressHud
 {
@@ -16,7 +16,7 @@ public class ICloudProgressHud
 
     public bool IsCancelled => _isCancelled;
 
-    public void Show(UIViewController parent, int totalCount)
+    public void Show(UIViewController parent, int totalCount, string title = "Memuat Foto dari Galeri...")
     {
         _isCancelled = false;
 
@@ -31,7 +31,7 @@ public class ICloudProgressHud
                     presenter = presenter.PresentedViewController;
                 }
 
-                _controller = new HudModalViewController(totalCount, () =>
+                _controller = new HudModalViewController(totalCount, title, () =>
                 {
                     _isCancelled = true;
                 });
@@ -45,12 +45,24 @@ public class ICloudProgressHud
         });
     }
 
-    public void Update(int currentIndex, int totalCount, string fileName, double itemFraction)
+    public void SetTitle(string title)
+    {
+        UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
+        {
+            _controller?.SetTitle(title);
+        });
+    }
+
+    public void Update(int currentIndex, int totalCount, string fileName, double itemFraction, string? title = null)
     {
         if (_isCancelled) return;
 
         UIApplication.SharedApplication.BeginInvokeOnMainThread(() =>
         {
+            if (!string.IsNullOrEmpty(title))
+            {
+                _controller?.SetTitle(title);
+            }
             _controller?.UpdateProgress(currentIndex, totalCount, fileName, itemFraction);
         });
     }
@@ -77,6 +89,7 @@ public class ICloudProgressHud
     private class HudModalViewController : UIViewController
     {
         private readonly int _initialCount;
+        private string _currentTitle;
         private readonly Action _onCancel;
         private UIVisualEffectView? _hudCard;
         private UIActivityIndicatorView? _spinner;
@@ -86,12 +99,22 @@ public class ICloudProgressHud
         private UILabel? _percentLabel;
         private UIButton? _cancelButton;
 
-        public HudModalViewController(int initialCount, Action onCancel)
+        public HudModalViewController(int initialCount, string title, Action onCancel)
         {
             _initialCount = initialCount;
+            _currentTitle = title;
             _onCancel = onCancel;
             ModalPresentationStyle = UIModalPresentationStyle.OverFullScreen;
             ModalTransitionStyle = UIModalTransitionStyle.CrossDissolve;
+        }
+
+        public void SetTitle(string title)
+        {
+            _currentTitle = title;
+            if (_titleLabel != null)
+            {
+                _titleLabel.Text = title;
+            }
         }
 
         public override void ViewDidLoad()
@@ -124,7 +147,7 @@ public class ICloudProgressHud
             // Title
             _titleLabel = new UILabel
             {
-                Text = "Mengunduh dari iCloud...",
+                Text = _currentTitle,
                 TextColor = UIColor.White,
                 Font = UIFont.BoldSystemFontOfSize(15f),
                 TextAlignment = UITextAlignment.Center,
@@ -134,7 +157,7 @@ public class ICloudProgressHud
             // Status label
             _statusLabel = new UILabel
             {
-                Text = _initialCount > 1 ? $"Foto 1 dari {_initialCount}" : "Menghubungkan ke foto...",
+                Text = _initialCount > 1 ? $"Foto 1 dari {_initialCount}" : "Memuat foto...",
                 TextColor = UIColor.FromRGBA(1f, 1f, 1f, 0.75f),
                 Font = UIFont.SystemFontOfSize(12f),
                 TextAlignment = UITextAlignment.Center,
@@ -176,7 +199,7 @@ public class ICloudProgressHud
             {
                 if (_statusLabel != null)
                 {
-                    _statusLabel.Text = "Membatalkan unduhan...";
+                    _statusLabel.Text = "Membatalkan...";
                 }
                 _cancelButton.Enabled = false;
                 _onCancel();
@@ -232,7 +255,7 @@ public class ICloudProgressHud
                 string name = string.IsNullOrEmpty(fileName) ? "" : $": {fileName}";
                 _statusLabel.Text = totalCount > 1
                     ? $"Foto {currentIndex} dari {totalCount}{name}"
-                    : $"Mengunduh{name}";
+                    : $"Memuat{name}";
             }
 
             double totalFraction = 0.0;

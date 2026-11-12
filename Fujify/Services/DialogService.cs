@@ -449,7 +449,7 @@ namespace Fujify.Services
                             fileName = fileName.Replace(c, '_');
                         }
 
-                        ViewModels.MainViewModel.ReportPlatformPickProgress(i + 1, files.Count, fileName, 0.1);
+                        ViewModels.MainViewModel.ReportPlatformPickProgress(i + 1, files.Count, fileName, 0.1, "Memuat File...");
 
                         string destFilePath = Path.Combine(stagingDir, fileName);
 
@@ -459,7 +459,7 @@ namespace Fujify.Services
                             await sourceStream.CopyToAsync(destStream);
                         }
 
-                        ViewModels.MainViewModel.ReportPlatformPickProgress(i + 1, files.Count, fileName, 1.0);
+                        ViewModels.MainViewModel.ReportPlatformPickProgress(i + 1, files.Count, fileName, 1.0, "Memuat File...");
 
                         // If file has no extension (e.g. Android SAF content URI gave a name without extension),
                         // inspect the header bytes to detect RAW format and append correct extension:

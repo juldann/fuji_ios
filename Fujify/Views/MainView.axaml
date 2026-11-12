@@ -226,7 +226,7 @@
                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="Mengunduh dari iCloud..." FontSize="13" FontWeight="SemiBold"
+                                            <TextBlock Text="{Binding ImportTitleText}" FontSize="13" FontWeight="SemiBold"
                                                        Foreground="{DynamicResource AppTextPrimaryBrush}"/>
                                             <TextBlock Text="{Binding ImportStatusText}" FontSize="11"
                                                        Foreground="{DynamicResource AppTextSecondaryBrush}"
